@@ -37,7 +37,7 @@ class Settings:
     auto_accept_on: bool = False
     insta_lock: bool = False
     insta_ban: bool = False
-    save_settings: bool = False
+    save_settings: bool = True
     preload_data: bool = False
 
     # Delays (in milliseconds)
@@ -83,21 +83,33 @@ class Settings:
         return Settings(**filtered_data)
 
 
+def _get_settings_path(path: str = "settings.json") -> Path:
+    """
+    Get the settings file path.
+    If path is relative, resolve it in the user's home directory for .exe compatibility.
+    """
+    settings_path = Path(path)
+    if settings_path.is_absolute():
+        return settings_path
+    # Use home directory for relative paths to work in .exe mode
+    return Path.home() / ".league_auto_accept" / path
+
+
 def load_settings(path: str = "settings.json") -> Settings:
     """
     Load settings from JSON file.
 
     Args:
-        path: Path to settings file
+        path: Path to settings file (relative paths go to ~/.league_auto_accept/)
 
     Returns: Settings instance (with defaults if file doesn't exist)
     """
-    settings_path = Path(path)
+    settings_path = _get_settings_path(path)
     if settings_path.exists():
         try:
             with open(settings_path, "r") as f:
                 data = json.load(f)
-            logger.info(f"Loaded settings from {path}")
+            logger.info(f"Loaded settings from {settings_path}")
             return Settings.from_dict(data)
         except Exception as e:
             logger.error(f"Error loading settings: {e}")
@@ -111,14 +123,17 @@ def save_settings(settings: Settings, path: str = "settings.json") -> bool:
 
     Args:
         settings: Settings instance to save
-        path: Path to settings file
+        path: Path to settings file (relative paths go to ~/.league_auto_accept/)
 
     Returns: True if successful, False otherwise
     """
     try:
-        with open(path, "w") as f:
+        settings_path = _get_settings_path(path)
+        # Create directory if it doesn't exist
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(settings_path, "w") as f:
             json.dump(settings.to_dict(), f, indent=2)
-        logger.info(f"Saved settings to {path}")
+        logger.info(f"Saved settings to {settings_path}")
         return True
     except Exception as e:
         logger.error(f"Error saving settings: {e}")
