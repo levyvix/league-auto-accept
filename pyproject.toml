@@ -9,3 +9,10 @@ dependencies = [
     "requests>=2.33.1",
     "rich>=15.0.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit>=3.0.0",
+    "ruff>=0.3.0",
+    "pyright>=1.1.0",
+]
