@@ -311,6 +311,17 @@ class LeagueAutoAcceptApp:
             save_settings(self.settings)
             logger.info(f"Auto-save toggled: {self.settings.save_settings}")
 
+        elif key_char == "R":
+            self.settings.auto_requeue = not self.settings.auto_requeue
+            if self.auto_accept:
+                self.auto_accept.settings.auto_requeue = self.settings.auto_requeue
+                self.auto_accept.shared_state["auto_requeue"] = (
+                    self.settings.auto_requeue
+                )
+            if self.settings.save_settings:
+                save_settings(self.settings)
+            logger.info(f"Auto-requeue toggled: {self.settings.auto_requeue}")
+
         elif key_char == "Q":
             self.current_screen = "main"
 

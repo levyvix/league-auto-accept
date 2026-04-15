@@ -24,10 +24,15 @@ class AutoAccept:
         self.last_chat_room = ""
         self.champ_select_start = 0
 
+        # End-of-game requeue state
+        self.came_from_game: bool = False
+        self._honor_skipped: bool = False
+
         # State shared with UI
         self.shared_state = {
             "phase": "Unknown",
             "is_auto_accept_on": settings.auto_accept_on,
+            "auto_requeue": settings.auto_requeue,
         }
 
     def run(self):
@@ -46,6 +51,7 @@ class AutoAccept:
                 session = response.json()
                 phase = session.get("phase", "Unknown")
                 self.shared_state["phase"] = phase
+                self.shared_state["auto_requeue"] = self.settings.auto_requeue
 
                 logger.debug(f"Phase: {phase}")
 
@@ -53,14 +59,26 @@ class AutoAccept:
                     self._handle_ready_check()
                 elif phase == "ChampSelect":
                     self._handle_champ_select()
-                elif phase in (
-                    "Matchmaking",
-                    "Lobby",
-                    "InProgress",
-                    "WaitingForStats",
-                    "PreEndOfGame",
-                    "EndOfGame",
-                ):
+                elif phase in ("InProgress", "WaitingForStats"):
+                    self.came_from_game = True
+                    self._honor_skipped = False
+                    time.sleep(2)
+                elif phase == "PreEndOfGame":
+                    self.came_from_game = True
+                    if self.settings.auto_requeue:
+                        self._handle_pre_end_of_game()
+                    else:
+                        time.sleep(2)
+                elif phase == "EndOfGame":
+                    self.came_from_game = True
+                    time.sleep(2)
+                elif phase == "Lobby":
+                    if self.settings.auto_requeue and self.came_from_game:
+                        self._handle_requeue()
+                    else:
+                        time.sleep(2)
+                elif phase == "Matchmaking":
+                    self.came_from_game = False
                     time.sleep(2)
                 else:
                     time.sleep(1)
@@ -252,6 +270,27 @@ class AutoAccept:
         # Lock if time remaining is less than end_delay or elapsed time exceeds start_delay
         if remaining <= end_delay or elapsed >= start_delay:
             self._lock_champion(action_id, champion_id)
+
+    def _handle_pre_end_of_game(self):
+        """Skip honor vote during PreEndOfGame phase."""
+        if self._honor_skipped:
+            time.sleep(2)
+            return
+        logger.info("Skipping honor vote")
+        response = self.lcu.request("POST", "lol-honor-v2/v1/skip-honor-vote")
+        if response and response.ok:
+            logger.info("Honor vote skipped")
+            self._honor_skipped = True
+        time.sleep(2)
+
+    def _handle_requeue(self):
+        """Start matchmaking after returning to lobby post-game."""
+        logger.info("Auto-requeue: starting matchmaking search")
+        response = self.lcu.request("POST", "lol-lobby/v2/lobby/matchmaking/search")
+        if response and response.ok:
+            logger.info("Matchmaking search started")
+            self.came_from_game = False
+        time.sleep(2)
 
     def stop(self):
         """Stop the automation."""
