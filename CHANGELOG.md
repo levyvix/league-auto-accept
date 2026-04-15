@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/levyvix/league-auto-accept/compare/league-auto-accept-v0.2.0...league-auto-accept-v0.3.0) (2026-04-15)
+
+
+### Features
+
+* add auto-update on startup ([c0cea70](https://github.com/levyvix/league-auto-accept/commit/c0cea70f02042354ada098b16992aed2d06035d7))
+
 ## [0.2.0](https://github.com/levyvix/league-auto-accept/compare/league-auto-accept-v0.1.1...league-auto-accept-v0.2.0) (2026-04-15)
 
 
