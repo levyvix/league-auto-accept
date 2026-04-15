@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/levyvix/league-auto-accept/compare/league-auto-accept-v0.1.1...league-auto-accept-v0.2.0) (2026-04-15)
+
+
+### Features
+
+* champion setup wizard for easier champion selection ([7e8e320](https://github.com/levyvix/league-auto-accept/commit/7e8e3209c7f6fc3f590dfdb8ea28695733344de2))
+
 ## [0.1.1](https://github.com/levyvix/league-auto-accept/compare/league-auto-accept-v0.1.0...league-auto-accept-v0.1.1) (2026-04-15)
 
 
