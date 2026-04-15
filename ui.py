@@ -168,7 +168,7 @@ class UIManager:
         """Get a key press without blocking."""
         start = time.time()
         while time.time() - start < timeout:
-            if msvcrt.kbhit():
-                return ord(msvcrt.getch())
+            if msvcrt.kbhit():  # type: ignore[attr-defined]
+                return ord(msvcrt.getch())  # type: ignore[attr-defined]
             time.sleep(0.001)
         return None

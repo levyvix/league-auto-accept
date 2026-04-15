@@ -185,8 +185,8 @@ class LeagueAutoAcceptApp:
             self.current_screen = "main"
 
         elif key == 224:  # Extended key (arrow keys)
-            if msvcrt.kbhit():
-                next_key = ord(msvcrt.getch())
+            if msvcrt.kbhit():  # type: ignore[attr-defined]
+                next_key = ord(msvcrt.getch())  # type: ignore[attr-defined]
                 if next_key == 72:  # Up
                     self.ui.current_selection = max(0, self.ui.current_selection - 1)
                 elif next_key == 80:  # Down
