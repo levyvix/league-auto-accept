@@ -30,9 +30,15 @@ class UIManager:
             if settings.auto_accept_on
             else "[bold red]OFF[/bold red]"
         )
+        auto_requeue_status = (
+            "[bold green]ON[/bold green]"
+            if settings.auto_requeue
+            else "[bold red]OFF[/bold red]"
+        )
 
         info_lines = [
             f"Auto-Accept: {auto_accept_status}",
+            f"Auto-Requeue: {auto_requeue_status}",
             f"Primary: {settings.champ_name}",
             f"Primary Backup: {settings.backup_champ_name}",
             f"Secondary: {settings.secondary_champ_name}",
@@ -181,6 +187,7 @@ class UIManager:
             f"Insta Lock: [{'green' if settings.insta_lock else 'red'}]{'ON' if settings.insta_lock else 'OFF'}[/]  (Press [cyan]L[/cyan])",
             f"Insta Ban: [{'green' if settings.insta_ban else 'red'}]{'ON' if settings.insta_ban else 'OFF'}[/]  (Press [cyan]B[/cyan])",
             f"Auto-Save: [{'green' if settings.save_settings else 'red'}]{'ON' if settings.save_settings else 'OFF'}[/]  (Press [cyan]S[/cyan])",
+            f"Auto-Requeue: [{'green' if settings.auto_requeue else 'red'}]{'ON' if settings.auto_requeue else 'OFF'}[/]  (Press [cyan]R[/cyan])",
             f"Pick Start Hover: {settings.pick_start_hover_delay}ms",
             f"Pick End Lock: {settings.pick_end_lock_delay}ms",
             f"Ban Start Hover: {settings.ban_start_hover_delay}ms",
@@ -189,6 +196,7 @@ class UIManager:
             "[cyan]L[/cyan] - Toggle insta-lock",
             "[cyan]B[/cyan] - Toggle insta-ban",
             "[cyan]S[/cyan] - Toggle auto-save",
+            "[cyan]R[/cyan] - Toggle auto-requeue",
             "[cyan]Q[/cyan] - Back",
         ]
         return Panel(
