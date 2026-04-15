@@ -99,7 +99,7 @@ def check_for_updates_interactive(console: Console) -> None:
     console.print("Download and apply now? [Y/N] ", end="")
 
     while True:
-        ch = msvcrt.getch()
+        ch = msvcrt.getch()  # type: ignore[attr-defined]
         key = ch.decode("utf-8", errors="ignore").upper()
         if key == "Y":
             console.print("Y")
@@ -151,7 +151,7 @@ def _apply_update(console: Console, url: str) -> None:
 
     subprocess.Popen(
         ["cmd", "/c", str(bat_path)],
-        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,  # type: ignore[attr-defined]
         close_fds=True,
     )
     console.print("[green]Update downloaded. Relaunching...[/green]")
