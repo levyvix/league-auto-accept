@@ -15,4 +15,5 @@ dev = [
     "pre-commit>=3.0.0",
     "ruff>=0.3.0",
     "pyright>=1.1.0",
+    "pyinstaller>=6.0.0",
 ]

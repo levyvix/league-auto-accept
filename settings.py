@@ -2,7 +2,7 @@ import json
 import logging
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
-from typing import Optional, List
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class Settings:
         return asdict(self)
 
     @staticmethod
-    def from_dict(data: dict) -> 'Settings':
+    def from_dict(data: dict) -> "Settings":
         """Create Settings instance from dictionary."""
         # Filter out unknown keys
         valid_fields = {f.name for f in Settings.__dataclass_fields__.values()}
@@ -95,7 +95,7 @@ def load_settings(path: str = "settings.json") -> Settings:
     settings_path = Path(path)
     if settings_path.exists():
         try:
-            with open(settings_path, 'r') as f:
+            with open(settings_path, "r") as f:
                 data = json.load(f)
             logger.info(f"Loaded settings from {path}")
             return Settings.from_dict(data)
@@ -116,7 +116,7 @@ def save_settings(settings: Settings, path: str = "settings.json") -> bool:
     Returns: True if successful, False otherwise
     """
     try:
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             json.dump(settings.to_dict(), f, indent=2)
         logger.info(f"Saved settings to {path}")
         return True

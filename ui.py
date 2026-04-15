@@ -1,11 +1,10 @@
 import logging
 import msvcrt
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.text import Text
 from rich.align import Align
 
 from data import ChampionInfo
@@ -25,8 +24,12 @@ class UIManager:
 
     def build_main_screen(self, settings, shared_state) -> Panel:
         """Build the main status screen panel."""
-        phase = shared_state.get('phase', 'Unknown')
-        auto_accept_status = "[bold green]ON[/bold green]" if settings.auto_accept_on else "[bold red]OFF[/bold red]"
+        phase = shared_state.get("phase", "Unknown")
+        auto_accept_status = (
+            "[bold green]ON[/bold green]"
+            if settings.auto_accept_on
+            else "[bold red]OFF[/bold red]"
+        )
 
         info_lines = [
             f"Auto-Accept: {auto_accept_status}",
@@ -47,7 +50,7 @@ class UIManager:
             "\n".join(info_lines),
             border_style="blue",
             padding=(1, 2),
-            title="[bold]League Auto Accept[/bold]"
+            title="[bold]League Auto Accept[/bold]",
         )
 
     def build_waiting_screen(self) -> Panel:
@@ -55,10 +58,12 @@ class UIManager:
         return Panel(
             Align.center("[bold yellow]Waiting for League Client...[/bold yellow]"),
             border_style="yellow",
-            padding=(2, 4)
+            padding=(2, 4),
         )
 
-    def build_champion_picker(self, title: str = "Select Champion", recent_ids: List[str] = None) -> tuple[Panel, List[ChampionInfo]]:
+    def build_champion_picker(
+        self, title: str = "Select Champion", recent_ids: Optional[List[str]] = None
+    ) -> Tuple[Panel, List[ChampionInfo]]:
         """Build champion picker screen. Returns (panel, filtered_list)."""
         if recent_ids is None:
             recent_ids = []
@@ -68,7 +73,9 @@ class UIManager:
         all_champs = [c for c in self.champions if c.id not in recent_ids]
 
         # Apply filter to all (not recent)
-        filtered_all = [c for c in all_champs if self.search_filter.lower() in c.name.lower()]
+        filtered_all = [
+            c for c in all_champs if self.search_filter.lower() in c.name.lower()
+        ]
 
         # Combine: recently used (always shown) + filtered
         if not self.search_filter:
@@ -76,19 +83,24 @@ class UIManager:
             filtered = recent_champs + all_champs
         else:
             # With filter: show recent that match + filtered
-            filtered_recent = [c for c in recent_champs if self.search_filter.lower() in c.name.lower()]
+            filtered_recent = [
+                c for c in recent_champs if self.search_filter.lower() in c.name.lower()
+            ]
             filtered = filtered_recent + filtered_all
 
         if not filtered:
-            return Panel(f"[red]No champions found for '{self.search_filter}'[/red]", border_style="red"), []
+            return Panel(
+                f"[red]No champions found for '{self.search_filter}'[/red]",
+                border_style="red",
+            ), []
 
         self.current_selection = min(self.current_selection, len(filtered) - 1)
         self.current_selection = max(self.current_selection, 0)
 
         # Build list
         lines = [
-            f"[dim]Type to filter, arrows to select, Enter to confirm, Esc to cancel[/dim]",
-            ""
+            "[dim]Type to filter, arrows to select, Enter to confirm, Esc to cancel[/dim]",
+            "",
         ]
 
         # Show recent section
@@ -103,8 +115,12 @@ class UIManager:
             lines.append("[dim]All Champions[/dim]")
 
         # Show all champions
-        start_idx = len(recent_champs) if (recent_champs and not self.search_filter) else 0
-        for i, champ in enumerate(filtered[start_idx:start_idx+15]):  # Show max 15 more
+        start_idx = (
+            len(recent_champs) if (recent_champs and not self.search_filter) else 0
+        )
+        for i, champ in enumerate(
+            filtered[start_idx : start_idx + 15]
+        ):  # Show max 15 more
             actual_idx = start_idx + i
             if actual_idx == self.current_selection:
                 lines.append(f"[bold green]> {champ.name}[/bold green]")
@@ -116,9 +132,16 @@ class UIManager:
             lines.append(f"  ... and {remaining} more")
 
         lines.append("")
-        lines.append(f"[dim]Search: {self.search_filter}  |  ({self.current_selection + 1}/{len(filtered)})[/dim]")
+        lines.append(
+            f"[dim]Search: {self.search_filter}  |  ({self.current_selection + 1}/{len(filtered)})[/dim]"
+        )
 
-        return Panel("\n".join(lines), border_style="cyan", padding=(0, 1), title=f"[bold]{title}[/bold]"), filtered
+        return Panel(
+            "\n".join(lines),
+            border_style="cyan",
+            padding=(0, 1),
+            title=f"[bold]{title}[/bold]",
+        ), filtered
 
     def build_settings_menu(self, settings) -> Panel:
         """Build settings menu panel."""
@@ -134,7 +157,12 @@ class UIManager:
             "[cyan]B[/cyan] - Toggle insta-ban",
             "[cyan]Q[/cyan] - Back",
         ]
-        return Panel("\n".join(lines), border_style="blue", padding=(1, 2), title="[bold]Settings[/bold]")
+        return Panel(
+            "\n".join(lines),
+            border_style="blue",
+            padding=(1, 2),
+            title="[bold]Settings[/bold]",
+        )
 
     def input_non_blocking(self, timeout: float = 0.05) -> Optional[int]:
         """Get a key press without blocking."""

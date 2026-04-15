@@ -1,8 +1,6 @@
 import base64
-import json
 import logging
 import re
-import subprocess
 import time
 from typing import Optional, Dict, Any
 
@@ -18,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 def find_lcu_process() -> Optional[psutil.Process]:
     """Find the LeagueClientUx process."""
-    for proc in psutil.process_iter(['name', 'pid']):
+    for proc in psutil.process_iter(["name", "pid"]):
         try:
-            if proc.info['name'] == 'LeagueClientUx.exe':
-                return psutil.Process(proc.info['pid'])
+            if proc.info["name"] == "LeagueClientUx.exe":
+                return psutil.Process(proc.info["pid"])
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return None
@@ -35,7 +33,7 @@ def parse_auth_from_cmdline(proc: psutil.Process) -> Optional[tuple[str, str]]:
     try:
         # Get the full command line
         cmdline = proc.cmdline()
-        cmdline_str = ' '.join(cmdline)
+        cmdline_str = " ".join(cmdline)
 
         # Extract port
         port_match = re.search(r'--app-port="?(\d+)"?', cmdline_str)
@@ -45,7 +43,7 @@ def parse_auth_from_cmdline(proc: psutil.Process) -> Optional[tuple[str, str]]:
         port = port_match.group(1)
 
         # Extract auth token
-        token_match = re.search(r'--remoting-auth-token=([a-zA-Z0-9_-]+)', cmdline_str)
+        token_match = re.search(r"--remoting-auth-token=([a-zA-Z0-9_-]+)", cmdline_str)
         if not token_match:
             logger.warning("Could not find auth token in cmdline")
             return None
@@ -53,7 +51,7 @@ def parse_auth_from_cmdline(proc: psutil.Process) -> Optional[tuple[str, str]]:
 
         # Build basic auth header
         auth_str = f"riot:{token}"
-        auth_b64 = base64.b64encode(auth_str.encode('utf-8')).decode('utf-8')
+        auth_b64 = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
 
         logger.info(f"Parsed LCU auth: port={port}")
         return port, auth_b64
@@ -69,12 +67,16 @@ class LCUClient:
         self.base_url = f"https://127.0.0.1:{port}"
         self.session = requests.Session()
         self.session.verify = False
-        self.session.headers.update({
-            'Authorization': f'Basic {auth_header}',
-            'Content-Type': 'application/json'
-        })
+        self.session.headers.update(
+            {
+                "Authorization": f"Basic {auth_header}",
+                "Content-Type": "application/json",
+            }
+        )
 
-    def request(self, method: str, endpoint: str, json_data: Optional[Dict[str, Any]] = None) -> Optional[requests.Response]:
+    def request(
+        self, method: str, endpoint: str, json_data: Optional[Dict[str, Any]] = None
+    ) -> Optional[requests.Response]:
         """
         Make a request to LCU.
 
@@ -94,7 +96,13 @@ class LCUClient:
             logger.error(f"Request failed: {method} {endpoint}: {e}")
             return None
 
-    def request_until_success(self, method: str, endpoint: str, json_data: Optional[Dict[str, Any]] = None, timeout: int = 30) -> Optional[requests.Response]:
+    def request_until_success(
+        self,
+        method: str,
+        endpoint: str,
+        json_data: Optional[Dict[str, Any]] = None,
+        timeout: int = 30,
+    ) -> Optional[requests.Response]:
         """
         Retry a request until it succeeds or timeout.
 
@@ -117,7 +125,7 @@ class LCUClient:
 
     def is_client_open(self) -> bool:
         """Check if the League Client is still open."""
-        response = self.request('GET', 'lol-gameflow/v1/session')
+        response = self.request("GET", "lol-gameflow/v1/session")
         return response is not None and response.ok
 
 
