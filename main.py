@@ -35,6 +35,8 @@ class LeagueAutoAcceptApp:
         self.champions = []
         self.running = True
         self.current_screen = "main"
+        self.picker_type = None  # Track which type of picker is open
+        self.wizard_step = 0  # Track position in champion setup wizard (0-3)
 
     def run(self):
         """Main application loop using rich.Live for clean output."""
@@ -75,18 +77,37 @@ class LeagueAutoAcceptApp:
                         )
                         live.update(panel)
                         self._handle_main_input()
-                    elif self.current_screen == "champion_picker":
-                        panel, filtered = self.ui.build_champion_picker(
-                            "Select Champion", self.settings.recent_champions
-                        )
+                    elif self.current_screen == "picker":
+                        # Determine title and recent list based on picker type
+                        if self.picker_type == "champion_wizard":
+                            title = "Select Champions"
+                            recent = self.settings.recent_champions
+                            # Get current champion id for auto-selection
+                            current_id = self._get_wizard_current_champ_id()
+                            panel, filtered = self.ui.build_champion_picker(
+                                title,
+                                recent,
+                                wizard_step=self.wizard_step,
+                                current_id=current_id,
+                            )
+                            # Auto-select the current champion if found
+                            if current_id and current_id != "0":
+                                for i, champ in enumerate(filtered):
+                                    if champ.id == current_id:
+                                        self.ui.current_selection = i
+                                        break
+                        elif self.picker_type == "ban":
+                            title = "Select Ban"
+                            recent = self.settings.recent_bans
+                            panel, filtered = self.ui.build_champion_picker(
+                                title, recent
+                            )
+                        else:
+                            title = "Select"
+                            panel, filtered = self.ui.build_champion_picker(title)
+
                         live.update(panel)
-                        self._handle_picker_input(filtered, "champ")
-                    elif self.current_screen == "ban_picker":
-                        panel, filtered = self.ui.build_champion_picker(
-                            "Select Ban", self.settings.recent_bans
-                        )
-                        live.update(panel)
-                        self._handle_picker_input(filtered, "ban")
+                        self._handle_picker_input(filtered, self.picker_type)
                     elif self.current_screen == "settings":
                         panel = self.ui.build_settings_menu(self.settings)
                         live.update(panel)
@@ -101,6 +122,8 @@ class LeagueAutoAcceptApp:
             if self.auto_accept and automation_thread and automation_thread.is_alive():
                 self.auto_accept.stop()
                 automation_thread.join(timeout=2)
+            # Always save settings on exit
+            save_settings(self.settings)
             logger.info("Exiting")
 
     def _monitor_client(self):
@@ -133,13 +156,19 @@ class LeagueAutoAcceptApp:
             logger.info(f"Auto-accept toggled: {self.settings.auto_accept_on}")
 
         elif key_char == "2":
-            self.current_screen = "champion_picker"
+            # Start champion wizard
+            self.current_screen = "picker"
+            self.picker_type = "champion_wizard"
+            self.wizard_step = 0
             self.ui.champions = self.champions
             self.ui.search_filter = ""
             self.ui.current_selection = 0
+            logger.info("Starting champion setup wizard")
 
         elif key_char == "3":
-            self.current_screen = "ban_picker"
+            # Select ban
+            self.current_screen = "picker"
+            self.picker_type = "ban"
             self.ui.champions = self.champions
             self.ui.search_filter = ""
             self.ui.current_selection = 0
@@ -164,25 +193,59 @@ class LeagueAutoAcceptApp:
 
         if key == 27:  # Esc
             self.current_screen = "main"
+            if picker_type == "champion_wizard":
+                logger.info("Champion wizard cancelled")
 
         elif key == 13:  # Enter
             selected = filtered[self.ui.current_selection]
-            if picker_type == "champ":
-                self.settings.champ_name = selected.name
-                self.settings.champ_id = selected.id
+
+            if picker_type == "champion_wizard":
+                # Handle wizard steps
+                if self.wizard_step == 0:
+                    self.settings.champ_name = selected.name
+                    self.settings.champ_id = selected.id
+                    logger.info(f"Step 1 - Primary: {selected.name}")
+                elif self.wizard_step == 1:
+                    self.settings.backup_champ_name = selected.name
+                    self.settings.backup_champ_id = selected.id
+                    logger.info(f"Step 2 - Primary Backup: {selected.name}")
+                elif self.wizard_step == 2:
+                    self.settings.secondary_champ_name = selected.name
+                    self.settings.secondary_champ_id = selected.id
+                    logger.info(f"Step 3 - Secondary: {selected.name}")
+                elif self.wizard_step == 3:
+                    self.settings.secondary_backup_champ_name = selected.name
+                    self.settings.secondary_backup_champ_id = selected.id
+                    logger.info(f"Step 4 - Secondary Backup: {selected.name}")
+
                 self.settings.add_recent_champion(selected.id)
-                logger.info(f"Selected champion: {selected.name}")
+
+                # Move to next step
+                self.wizard_step += 1
+                if self.wizard_step > 3:
+                    # Wizard complete
+                    if self.auto_accept:
+                        self.auto_accept.settings = self.settings
+                    if self.settings.save_settings:
+                        save_settings(self.settings)
+                    self.current_screen = "main"
+                    logger.info("Champion wizard completed")
+                else:
+                    # Move to next step, reset search
+                    self.ui.search_filter = ""
+                    self.ui.current_selection = 0
+
             elif picker_type == "ban":
                 self.settings.ban_name = selected.name
                 self.settings.ban_id = selected.id
                 self.settings.add_recent_ban(selected.id)
                 logger.info(f"Selected ban: {selected.name}")
 
-            if self.auto_accept:
-                self.auto_accept.settings = self.settings
-            if self.settings.save_settings:
-                save_settings(self.settings)
-            self.current_screen = "main"
+                if self.auto_accept:
+                    self.auto_accept.settings = self.settings
+                if self.settings.save_settings:
+                    save_settings(self.settings)
+                self.current_screen = "main"
 
         elif key == 224:  # Extended key (arrow keys)
             if msvcrt.kbhit():  # type: ignore[attr-defined]
@@ -199,6 +262,18 @@ class LeagueAutoAcceptApp:
 
         elif key == 8:  # Backspace
             self.ui.search_filter = self.ui.search_filter[:-1]
+
+    def _get_wizard_current_champ_id(self) -> str:
+        """Get the current champion ID for the current wizard step."""
+        if self.wizard_step == 0:
+            return self.settings.champ_id
+        elif self.wizard_step == 1:
+            return self.settings.backup_champ_id
+        elif self.wizard_step == 2:
+            return self.settings.secondary_champ_id
+        elif self.wizard_step == 3:
+            return self.settings.secondary_backup_champ_id
+        return "0"
 
     def _handle_settings_input(self):
         """Handle input in settings menu."""
@@ -218,6 +293,11 @@ class LeagueAutoAcceptApp:
             if self.settings.save_settings:
                 save_settings(self.settings)
             logger.info(f"Insta-ban toggled: {self.settings.insta_ban}")
+
+        elif key_char == "S":
+            self.settings.save_settings = not self.settings.save_settings
+            save_settings(self.settings)
+            logger.info(f"Auto-save toggled: {self.settings.save_settings}")
 
         elif key_char == "Q":
             self.current_screen = "main"

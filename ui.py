@@ -33,14 +33,16 @@ class UIManager:
 
         info_lines = [
             f"Auto-Accept: {auto_accept_status}",
-            f"Champion: {settings.champ_name}",
-            f"Backup: {settings.backup_champ_name}",
+            f"Primary: {settings.champ_name}",
+            f"Primary Backup: {settings.backup_champ_name}",
+            f"Secondary: {settings.secondary_champ_name}",
+            f"Secondary Backup: {settings.secondary_backup_champ_name}",
             f"Ban: {settings.ban_name}",
             f"Game Phase: {phase}",
             "",
             "[bold]Controls:[/bold]",
             "[cyan]1[/cyan] - Toggle auto-accept",
-            "[cyan]2[/cyan] - Set champion",
+            "[cyan]2[/cyan] - Setup champions (wizard)",
             "[cyan]3[/cyan] - Set ban",
             "[cyan]4[/cyan] - Settings",
             "[cyan]Q[/cyan] - Quit",
@@ -62,9 +64,20 @@ class UIManager:
         )
 
     def build_champion_picker(
-        self, title: str = "Select Champion", recent_ids: Optional[List[str]] = None
+        self,
+        title: str = "Select Champion",
+        recent_ids: Optional[List[str]] = None,
+        wizard_step: Optional[int] = None,
+        current_id: Optional[str] = None,
     ) -> Tuple[Panel, List[ChampionInfo]]:
-        """Build champion picker screen. Returns (panel, filtered_list)."""
+        """Build champion picker screen. Returns (panel, filtered_list).
+
+        Args:
+            title: Title for the picker
+            recent_ids: List of recently used champion IDs
+            wizard_step: Current step in wizard (0-3), or None if not in wizard mode
+            current_id: Current champion ID for this step (for auto-selection)
+        """
         if recent_ids is None:
             recent_ids = []
 
@@ -102,6 +115,25 @@ class UIManager:
             "[dim]Type to filter, arrows to select, Enter to confirm, Esc to cancel[/dim]",
             "",
         ]
+
+        # Add wizard status if in wizard mode
+        if wizard_step is not None:
+            steps = ["Primary", "Primary Backup", "Secondary", "Secondary Backup"]
+            remaining_steps = (
+                steps[wizard_step + 1 :] if wizard_step < len(steps) - 1 else []
+            )
+            wizard_status = f"Step {wizard_step + 1}/4: {steps[wizard_step]}"
+            if remaining_steps:
+                wizard_status += f"  →  {' → '.join(remaining_steps)}"
+            lines.append(f"[bold cyan]{wizard_status}[/bold cyan]")
+            if current_id and current_id != "0":
+                # Find current champion name to display
+                current_champ = next(
+                    (c for c in self.champions if c.id == current_id), None
+                )
+                if current_champ:
+                    lines.append(f"[dim](Current: {current_champ.name})[/dim]")
+            lines.append("")
 
         # Show recent section
         if recent_champs and not self.search_filter:
@@ -148,6 +180,7 @@ class UIManager:
         lines = [
             f"Insta Lock: [{'green' if settings.insta_lock else 'red'}]{'ON' if settings.insta_lock else 'OFF'}[/]  (Press [cyan]L[/cyan])",
             f"Insta Ban: [{'green' if settings.insta_ban else 'red'}]{'ON' if settings.insta_ban else 'OFF'}[/]  (Press [cyan]B[/cyan])",
+            f"Auto-Save: [{'green' if settings.save_settings else 'red'}]{'ON' if settings.save_settings else 'OFF'}[/]  (Press [cyan]S[/cyan])",
             f"Pick Start Hover: {settings.pick_start_hover_delay}ms",
             f"Pick End Lock: {settings.pick_end_lock_delay}ms",
             f"Ban Start Hover: {settings.ban_start_hover_delay}ms",
@@ -155,6 +188,7 @@ class UIManager:
             "",
             "[cyan]L[/cyan] - Toggle insta-lock",
             "[cyan]B[/cyan] - Toggle insta-ban",
+            "[cyan]S[/cyan] - Toggle auto-save",
             "[cyan]Q[/cyan] - Back",
         ]
         return Panel(
