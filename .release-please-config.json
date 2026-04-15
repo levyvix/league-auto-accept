@@ -3,7 +3,13 @@
     ".": {
       "release-type": "python",
       "package-name": "league-auto-accept",
-      "version-file": "pyproject.toml"
+      "version-file": "pyproject.toml",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "version.py"
+        }
+      ]
     }
   }
 }

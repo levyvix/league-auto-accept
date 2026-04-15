@@ -13,6 +13,7 @@ from settings import load_settings, save_settings
 from data import load_champions, load_summoner_id
 from main_logic import AutoAccept
 from ui import UIManager
+from updater import check_for_updates
 
 # Suppress logging to console (use file only)
 logging.basicConfig(
@@ -41,6 +42,12 @@ class LeagueAutoAcceptApp:
     def run(self):
         """Main application loop using rich.Live for clean output."""
         logger.info("Starting League Auto Accept")
+
+        # Start update check in background (non-blocking)
+        update_thread = threading.Thread(
+            target=check_for_updates, args=(self.console,), daemon=True
+        )
+        update_thread.start()
 
         # Start client monitor thread
         monitor_thread = threading.Thread(target=self._monitor_client, daemon=True)
@@ -175,6 +182,11 @@ class LeagueAutoAcceptApp:
 
         elif key_char == "4":
             self.current_screen = "settings"
+
+        elif key_char == "U":
+            from updater import check_for_updates_interactive
+
+            check_for_updates_interactive(self.console)
 
         elif key_char == "Q":
             self.running = False
