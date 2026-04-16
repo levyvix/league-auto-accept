@@ -71,6 +71,12 @@ class LeagueAutoAcceptApp:
                     # Client is connected
                     if not automation_thread or not automation_thread.is_alive():
                         self.auto_accept = AutoAccept(self.lcu, self.settings)
+
+                        # Set callback to save settings when auto-requeue is auto-disabled
+                        def _on_settings_changed():
+                            save_settings(self.settings)
+
+                        self.auto_accept.on_settings_changed = _on_settings_changed
                         automation_thread = threading.Thread(
                             target=self.auto_accept.run, daemon=True
                         )
@@ -193,12 +199,6 @@ class LeagueAutoAcceptApp:
 
     def _handle_picker_input(self, filtered, picker_type):
         """Handle input in champion/ban picker."""
-        if not filtered:
-            key = self.ui.input_non_blocking()
-            if key and key == 27:  # Esc
-                self.current_screen = "main"
-            return
-
         key = self.ui.input_non_blocking()
         if not key:
             return
@@ -207,8 +207,13 @@ class LeagueAutoAcceptApp:
             self.current_screen = "main"
             if picker_type == "champion_wizard":
                 logger.info("Champion wizard cancelled")
+            return
 
-        elif key == 13:  # Enter
+        # If no results from search, ignore all input except Esc (handled above)
+        if not filtered:
+            return
+
+        if key == 13:  # Enter
             selected = filtered[self.ui.current_selection]
 
             if picker_type == "champion_wizard":
@@ -318,9 +323,27 @@ class LeagueAutoAcceptApp:
                 self.auto_accept.shared_state["auto_requeue"] = (
                     self.settings.auto_requeue
                 )
+                # Reset the requeue flag so it can trigger again if enabling
+                if self.settings.auto_requeue:
+                    self.auto_accept._requeue_triggered_in_lobby = False
+                    logger.warning(
+                        "[ENABLED] Auto-requeue ENABLED - flag reset, shared_state updated"
+                    )
+                else:
+                    logger.warning("[DISABLED] Auto-requeue DISABLED")
             if self.settings.save_settings:
                 save_settings(self.settings)
             logger.info(f"Auto-requeue toggled: {self.settings.auto_requeue}")
+
+        elif key_char == "W":
+            self.settings.auto_swap_accept = not self.settings.auto_swap_accept
+            if self.auto_accept:
+                self.auto_accept.settings.auto_swap_accept = (
+                    self.settings.auto_swap_accept
+                )
+            if self.settings.save_settings:
+                save_settings(self.settings)
+            logger.info(f"Auto-swap accept toggled: {self.settings.auto_swap_accept}")
 
         elif key_char == "Q":
             self.current_screen = "main"

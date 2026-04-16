@@ -32,7 +32,7 @@ class UIManager:
         )
         auto_requeue_status = (
             "[bold green]ON[/bold green]"
-            if settings.auto_requeue
+            if shared_state.get("auto_requeue", settings.auto_requeue)
             else "[bold red]OFF[/bold red]"
         )
 
@@ -87,6 +87,9 @@ class UIManager:
         if recent_ids is None:
             recent_ids = []
 
+        # Create a special "None" option
+        none_champ = ChampionInfo(name="None", id_="0", owned=True)
+
         # Split recent from all
         recent_champs = [c for c in self.champions if c.id in recent_ids]
         all_champs = [c for c in self.champions if c.id not in recent_ids]
@@ -96,16 +99,25 @@ class UIManager:
             c for c in all_champs if self.search_filter.lower() in c.name.lower()
         ]
 
-        # Combine: recently used (always shown) + filtered
+        # Check if "None" matches filter
+        none_matches = not self.search_filter or "none".startswith(
+            self.search_filter.lower()
+        )
+
+        # Combine: None + recently used (always shown) + filtered
         if not self.search_filter:
-            # No filter: show recent + all others
-            filtered = recent_champs + all_champs
+            # No filter: show None + recent + all others
+            filtered = [none_champ] + recent_champs + all_champs
         else:
-            # With filter: show recent that match + filtered
+            # With filter: show None if matches + recent that match + filtered
+            filtered = []
+            if none_matches:
+                filtered.append(none_champ)
             filtered_recent = [
                 c for c in recent_champs if self.search_filter.lower() in c.name.lower()
             ]
-            filtered = filtered_recent + filtered_all
+            filtered.extend(filtered_recent)
+            filtered.extend(filtered_all)
 
         if not filtered:
             return Panel(
@@ -141,11 +153,20 @@ class UIManager:
                     lines.append(f"[dim](Current: {current_champ.name})[/dim]")
             lines.append("")
 
+        # Show None option at the top (only if it's in the filtered list)
+        if filtered and filtered[0].id == "0":
+            if 0 == self.current_selection:
+                lines.append("[bold green]> None[/bold green]")
+            else:
+                lines.append("  None")
+
         # Show recent section
         if recent_champs and not self.search_filter:
+            lines.append("")
             lines.append("[bold magenta]Recently Used[/bold magenta]")
             for i, champ in enumerate(recent_champs):
-                if i == self.current_selection:
+                actual_idx = i + 1  # +1 because None is at index 0
+                if actual_idx == self.current_selection:
                     lines.append(f"[bold green]> {champ.name}[/bold green]")
                 else:
                     lines.append(f"  {champ.name}")
@@ -153,9 +174,16 @@ class UIManager:
             lines.append("[dim]All Champions[/dim]")
 
         # Show all champions
-        start_idx = (
-            len(recent_champs) if (recent_champs and not self.search_filter) else 0
-        )
+        if recent_champs and not self.search_filter:
+            # None + recent_champs are already shown, skip them
+            start_idx = 1 + len(recent_champs)
+        elif self.search_filter and not none_matches:
+            # When filtering and None doesn't match, champions start at index 0
+            start_idx = 0
+        else:
+            # Only None is shown before all champions
+            start_idx = 1
+
         for i, champ in enumerate(
             filtered[start_idx : start_idx + 15]
         ):  # Show max 15 more
@@ -188,6 +216,7 @@ class UIManager:
             f"Insta Ban: [{'green' if settings.insta_ban else 'red'}]{'ON' if settings.insta_ban else 'OFF'}[/]  (Press [cyan]B[/cyan])",
             f"Auto-Save: [{'green' if settings.save_settings else 'red'}]{'ON' if settings.save_settings else 'OFF'}[/]  (Press [cyan]S[/cyan])",
             f"Auto-Requeue: [{'green' if settings.auto_requeue else 'red'}]{'ON' if settings.auto_requeue else 'OFF'}[/]  (Press [cyan]R[/cyan])",
+            f"Auto-Swap Accept: [{'green' if settings.auto_swap_accept else 'red'}]{'ON' if settings.auto_swap_accept else 'OFF'}[/]  (Press [cyan]W[/cyan])",
             f"Pick Start Hover: {settings.pick_start_hover_delay}ms",
             f"Pick End Lock: {settings.pick_end_lock_delay}ms",
             f"Ban Start Hover: {settings.ban_start_hover_delay}ms",
@@ -197,6 +226,7 @@ class UIManager:
             "[cyan]B[/cyan] - Toggle insta-ban",
             "[cyan]S[/cyan] - Toggle auto-save",
             "[cyan]R[/cyan] - Toggle auto-requeue",
+            "[cyan]W[/cyan] - Toggle auto-swap accept",
             "[cyan]Q[/cyan] - Back",
         ]
         return Panel(

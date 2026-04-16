@@ -38,6 +38,7 @@ class Settings:
     insta_lock: bool = False
     insta_ban: bool = False
     auto_requeue: bool = False
+    auto_swap_accept: bool = False
     save_settings: bool = True
     preload_data: bool = False
 

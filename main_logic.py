@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Callable
 
 from lcu import LCUClient
 from settings import Settings
@@ -23,10 +23,18 @@ class AutoAccept:
         self.locked_ban = False
         self.last_chat_room = ""
         self.champ_select_start = 0
+        self.assigned_position: str = "UTILITY"
+        self.current_game_mode: str = "CLASSIC"
 
         # End-of-game requeue state
         self.came_from_game: bool = False
         self._honor_skipped: bool = False
+        self._last_phase: str = ""
+        self._requeue_triggered_in_lobby: bool = False
+        self._is_searching_for_match: bool = (
+            False  # Track if we're actively in matchmaking search
+        )
+        self._search_start_time: float = 0  # When we started matchmaking search
 
         # State shared with UI
         self.shared_state = {
@@ -35,13 +43,12 @@ class AutoAccept:
             "auto_requeue": settings.auto_requeue,
         }
 
+        # Callback for saving settings
+        self.on_settings_changed: Optional[Callable[[], None]] = None
+
     def run(self):
         """Main loop for automation."""
         while self.running:
-            if not self.settings.auto_accept_on:
-                time.sleep(2)
-                continue
-
             response = self.lcu.request("GET", "lol-gameflow/v1/session")
             if not response or not response.ok:
                 time.sleep(2)
@@ -53,35 +60,68 @@ class AutoAccept:
                 self.shared_state["phase"] = phase
                 self.shared_state["auto_requeue"] = self.settings.auto_requeue
 
-                logger.debug(f"Phase: {phase}")
+                # Log every phase for debugging
+                logger.info(
+                    f"PHASE CHECK: {phase} (last={self._last_phase}, came_from_game={self.came_from_game}, auto_requeue={self.settings.auto_requeue})"
+                )
 
-                if phase == "ReadyCheck":
-                    self._handle_ready_check()
-                elif phase == "ChampSelect":
-                    self._handle_champ_select()
-                elif phase in ("InProgress", "WaitingForStats"):
+                # Handle auto-requeue even if auto_accept is off
+                if phase in ("InProgress", "WaitingForStats"):
                     self.came_from_game = True
                     self._honor_skipped = False
-                    time.sleep(2)
                 elif phase == "PreEndOfGame":
                     self.came_from_game = True
                     if self.settings.auto_requeue:
                         self._handle_pre_end_of_game()
-                    else:
-                        time.sleep(2)
+                        self._handle_requeue()
                 elif phase == "EndOfGame":
                     self.came_from_game = True
-                    time.sleep(2)
-                elif phase == "Lobby":
-                    if self.settings.auto_requeue and self.came_from_game:
+                    if self.settings.auto_requeue:
                         self._handle_requeue()
-                    else:
-                        time.sleep(2)
+                elif phase == "Lobby":
+                    # Check if user cancelled an active matchmaking search
+                    # Auto-requeue when in Lobby (after game OR on app startup if first in session)
+                    # Only skip if we just cancelled matchmaking (detected by _check_matchmaking_status)
+                    if (
+                        self.settings.auto_requeue
+                        and not self._requeue_triggered_in_lobby
+                    ):
+                        self._handle_requeue()
+                        self._requeue_triggered_in_lobby = True
                 elif phase == "Matchmaking":
                     self.came_from_game = False
-                    time.sleep(2)
+                    # Reset requeue flag when leaving Lobby
+                    self._requeue_triggered_in_lobby = False
                 else:
-                    time.sleep(1)
+                    # Reset requeue flag when entering any other phase
+                    self._requeue_triggered_in_lobby = False
+
+                # Only handle accept/champ select if auto_accept is on
+                if self.settings.auto_accept_on:
+                    if phase == "ReadyCheck":
+                        self._is_searching_for_match = (
+                            False  # Queue popped, no longer searching
+                        )
+                        self._handle_ready_check()
+                    elif phase == "ChampSelect":
+                        self._handle_champ_select()
+
+                # Track the previous phase for detecting state transitions
+                self._last_phase = phase
+
+                time.sleep(
+                    2
+                    if phase
+                    in (
+                        "InProgress",
+                        "WaitingForStats",
+                        "EndOfGame",
+                        "Lobby",
+                        "Matchmaking",
+                        "PreEndOfGame",
+                    )
+                    else 1
+                )
 
             except Exception as e:
                 logger.error(f"Error in main loop: {e}")
@@ -115,8 +155,15 @@ class AutoAccept:
                 self.locked_ban = False
                 self.last_chat_room = current_chat_room
                 self.champ_select_start = time.time() * 1000
+                self.current_game_mode = self._fetch_game_mode()
 
             local_player_cell_id = session.get("localPlayerCellId")
+            self.assigned_position = self._get_assigned_position(
+                session, local_player_cell_id
+            )
+
+            if self.settings.auto_swap_accept:
+                self._handle_position_swaps(session)
 
             # Process actions
             if not (
@@ -159,7 +206,7 @@ class AutoAccept:
             if action_type == "pick":
                 self._handle_pick_action(action_id, champion_id, is_in_progress, timer)
             elif action_type == "ban":
-                self._handle_ban_action(action_id, champion_id, is_in_progress, timer)
+                self._handle_ban_action(action_id, is_in_progress, timer)
 
     def _handle_pick_action(
         self,
@@ -197,7 +244,6 @@ class AutoAccept:
     def _handle_ban_action(
         self,
         action_id: int,
-        champion_id: int,
         is_in_progress: bool,
         timer: Dict[str, Any],
     ):
@@ -216,6 +262,22 @@ class AutoAccept:
                 else:
                     self._check_lock_delay(
                         action_id, int(self.settings.ban_id), timer, "ban"
+                    )
+
+    def _handle_position_swaps(self, session: Dict[str, Any]):
+        """Accept any pending incoming position swap offers."""
+        swaps = session.get("swaps", [])
+        for swap in swaps:
+            if swap.get("state") == "RECEIVED":
+                swap_id = swap.get("id")
+                endpoint = f"lol-champ-select/v1/session/swaps/{swap_id}/accept"
+                response = self.lcu.request("POST", endpoint)
+                if response and response.ok:
+                    logger.info(f"Auto-accepted position swap (id={swap_id})")
+                else:
+                    status = response.status_code if response else "None"
+                    logger.warning(
+                        f"Failed to accept swap (id={swap_id}): status={status}"
                     )
 
     def _hover_champion(
@@ -271,6 +333,29 @@ class AutoAccept:
         if remaining <= end_delay or elapsed >= start_delay:
             self._lock_champion(action_id, champion_id)
 
+    def _fetch_game_mode(self) -> str:
+        """Fetch the current game mode from the gameflow session."""
+        response = self.lcu.request("GET", "lol-gameflow/v1/session")
+        if response and response.ok:
+            try:
+                data = response.json()
+                mode = data.get("gameData", {}).get("queue", {}).get("gameMode", "")
+                if mode:
+                    return mode.upper()
+            except Exception:
+                pass
+        return "CLASSIC"
+
+    def _get_assigned_position(
+        self, session: Dict[str, Any], local_player_cell_id: int
+    ) -> str:
+        """Get the assigned position for the local player."""
+        for player in session.get("myTeam", []):
+            if player.get("cellId") == local_player_cell_id:
+                position = player.get("assignedPosition", "")
+                return position.upper() if position else "UTILITY"
+        return "UTILITY"
+
     def _handle_pre_end_of_game(self):
         """Skip honor vote during PreEndOfGame phase."""
         if self._honor_skipped:
@@ -285,11 +370,30 @@ class AutoAccept:
 
     def _handle_requeue(self):
         """Start matchmaking after returning to lobby post-game."""
+        logger.info("Auto-requeue: clicking Play Again")
+        response = self.lcu.request("POST", "lol-lobby/v2/play-again")
+        if response and response.ok:
+            logger.info("Play Again clicked")
+        else:
+            logger.warning(
+                f"Play Again failed: status={response.status_code if response else 'None'}"
+            )
+            time.sleep(2)
+            return
+
+        time.sleep(0.5)
+
         logger.info("Auto-requeue: starting matchmaking search")
         response = self.lcu.request("POST", "lol-lobby/v2/lobby/matchmaking/search")
         if response and response.ok:
             logger.info("Matchmaking search started")
+            self._is_searching_for_match = True
+            self._search_start_time = time.time()
             self.came_from_game = False
+        else:
+            logger.warning(
+                f"Requeue failed: status={response.status_code if response else 'None'}"
+            )
         time.sleep(2)
 
     def stop(self):
