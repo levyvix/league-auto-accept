@@ -25,6 +25,7 @@ class AutoAccept:
         self.champ_select_start = 0
         self.assigned_position: str = "UTILITY"
         self.current_game_mode: str = "CLASSIC"
+        self.selected_pick_champion_id: int = 0
 
         # End-of-game requeue state
         self.came_from_game: bool = False
@@ -153,6 +154,7 @@ class AutoAccept:
                 self.locked_champ = False
                 self.picked_ban = False
                 self.locked_ban = False
+                self.selected_pick_champion_id = 0
                 self.last_chat_room = current_chat_room
                 self.champ_select_start = time.time() * 1000
                 self.current_game_mode = self._fetch_game_mode()
@@ -218,6 +220,9 @@ class AutoAccept:
         """Handle champion pick action."""
         if champion_id == 0:
             self.picked_champ = False
+            self.selected_pick_champion_id = 0
+        elif self.selected_pick_champion_id == 0:
+            self.selected_pick_champion_id = champion_id
 
         # Check if we should hover
         phase = timer.get("phase", "PLANNING")
@@ -229,17 +234,19 @@ class AutoAccept:
         )
 
         if not self.picked_champ and should_hover:
-            champ_id = int(self.settings.champ_id)
-            if champ_id > 0:
-                self._hover_champion(action_id, champ_id, "pick")
+            for champ_id in self._get_pick_candidates():
+                if self._hover_champion(action_id, champ_id, "pick"):
+                    self.selected_pick_champion_id = champ_id
+                    break
 
         if is_in_progress and not self.locked_champ:
+            champ_id = self._get_pick_champion_to_lock(champion_id)
+            if champ_id <= 0:
+                return
             if self.settings.insta_lock:
-                self._lock_champion(action_id, int(self.settings.champ_id), "pick")
+                self._lock_champion(action_id, champ_id, "pick")
             else:
-                self._check_lock_delay(
-                    action_id, int(self.settings.champ_id), timer, "pick"
-                )
+                self._check_lock_delay(action_id, champ_id, timer, "pick")
 
     def _handle_ban_action(
         self,
@@ -282,7 +289,7 @@ class AutoAccept:
 
     def _hover_champion(
         self, action_id: int, champion_id: int, action_type: str = "pick"
-    ):
+    ) -> bool:
         """Hover a champion."""
         try:
             endpoint = f"lol-champ-select/v1/session/actions/{action_id}"
@@ -291,14 +298,21 @@ class AutoAccept:
                 logger.info(f"Hovered {action_type} champion {champion_id}")
                 if action_type == "pick":
                     self.picked_champ = True
+                    self.selected_pick_champion_id = champion_id
                 elif action_type == "ban":
                     self.picked_ban = True
+                return True
+            logger.info(
+                f"Failed to hover {action_type} champion {champion_id}: "
+                f"status={response.status_code if response else 'None'}"
+            )
         except Exception as e:
             logger.error(f"Error hovering champion: {e}")
+        return False
 
     def _lock_champion(
         self, action_id: int, champion_id: int, action_type: str = "pick"
-    ):
+    ) -> bool:
         """Lock a champion."""
         try:
             endpoint = f"lol-champ-select/v1/session/actions/{action_id}"
@@ -309,10 +323,17 @@ class AutoAccept:
                 logger.info(f"Locked {action_type} {champion_id}")
                 if action_type == "pick":
                     self.locked_champ = True
+                    self.selected_pick_champion_id = champion_id
                 elif action_type == "ban":
                     self.locked_ban = True
+                return True
+            logger.info(
+                f"Failed to lock {action_type} champion {champion_id}: "
+                f"status={response.status_code if response else 'None'}"
+            )
         except Exception as e:
             logger.error(f"Error locking champion: {e}")
+        return False
 
     def _check_lock_delay(
         self, action_id: int, champion_id: int, timer: Dict[str, Any], action_type: str
@@ -331,7 +352,43 @@ class AutoAccept:
 
         # Lock if time remaining is less than end_delay or elapsed time exceeds start_delay
         if remaining <= end_delay or elapsed >= start_delay:
-            self._lock_champion(action_id, champion_id)
+            self._lock_champion(action_id, champion_id, action_type)
+
+    def _get_pick_candidates(self) -> list[int]:
+        """Return the ordered list of configured pick candidates for the current role."""
+        if self.assigned_position == "UTILITY":
+            candidates = [
+                self.settings.champ_id,
+                self.settings.backup_champ_id,
+            ]
+            logger.info("Using primary champion pool for UTILITY")
+        else:
+            candidates = [
+                self.settings.secondary_champ_id,
+                self.settings.secondary_backup_champ_id,
+            ]
+            logger.info(
+                f"Using secondary champion pool for assigned position {self.assigned_position}"
+            )
+
+        result: list[int] = []
+        for champ_id in candidates:
+            try:
+                champ_int = int(champ_id)
+            except (TypeError, ValueError):
+                continue
+            if champ_int > 0 and champ_int not in result:
+                result.append(champ_int)
+        return result
+
+    def _get_pick_champion_to_lock(self, current_action_champion_id: int) -> int:
+        """Choose which champion should be locked for the current pick action."""
+        if self.selected_pick_champion_id > 0:
+            return self.selected_pick_champion_id
+        if current_action_champion_id > 0:
+            return current_action_champion_id
+        candidates = self._get_pick_candidates()
+        return candidates[0] if candidates else 0
 
     def _fetch_game_mode(self) -> str:
         """Fetch the current game mode from the gameflow session."""
