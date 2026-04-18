@@ -26,6 +26,7 @@ class AutoAccept:
         self.assigned_position: str = "UTILITY"
         self.current_game_mode: str = "CLASSIC"
         self.selected_pick_champion_id: int = 0
+        self._last_swap_signature: str = ""
 
         # End-of-game requeue state
         self.came_from_game: bool = False
@@ -155,6 +156,7 @@ class AutoAccept:
                 self.picked_ban = False
                 self.locked_ban = False
                 self.selected_pick_champion_id = 0
+                self._last_swap_signature = ""
                 self.last_chat_room = current_chat_room
                 self.champ_select_start = time.time() * 1000
                 self.current_game_mode = self._fetch_game_mode()
@@ -274,9 +276,37 @@ class AutoAccept:
     def _handle_position_swaps(self, session: Dict[str, Any]):
         """Accept any pending incoming position swap offers."""
         swaps = session.get("swaps", [])
+        if not isinstance(swaps, list):
+            logger.warning(f"Unexpected swaps payload type: {type(swaps).__name__}")
+            return
+
+        # Log only when the swaps snapshot changes to avoid log spam every poll.
+        signature_items = []
+        for swap in swaps:
+            if isinstance(swap, dict):
+                signature_items.append(
+                    f"{swap.get('id')}:{swap.get('state')}:{swap.get('direction')}"
+                )
+        signature = "|".join(signature_items)
+        if signature != self._last_swap_signature:
+            received_count = sum(
+                1
+                for swap in swaps
+                if isinstance(swap, dict) and swap.get("state") == "RECEIVED"
+            )
+            logger.info(
+                f"Swap snapshot changed: total={len(swaps)} received={received_count} "
+                f"details=[{signature}]"
+            )
+            self._last_swap_signature = signature
+
+        if not swaps:
+            return
+
         for swap in swaps:
             if swap.get("state") == "RECEIVED":
                 swap_id = swap.get("id")
+                logger.info(f"Attempting to accept position swap (id={swap_id})")
                 endpoint = f"lol-champ-select/v1/session/swaps/{swap_id}/accept"
                 response = self.lcu.request("POST", endpoint)
                 if response and response.ok:
