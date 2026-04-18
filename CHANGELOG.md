@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/levyvix/league-auto-accept/compare/league-auto-accept-v0.3.0...league-auto-accept-v0.4.0) (2026-04-18)
+
+
+### Features
+
+* add wait for lobby script and enhance auto-requeue functionality ([f634513](https://github.com/levyvix/league-auto-accept/commit/f6345135b67c10b43a2b952728920e3f8fba4019))
+
 ## [0.3.0](https://github.com/levyvix/league-auto-accept/compare/league-auto-accept-v0.2.0...league-auto-accept-v0.3.0) (2026-04-15)
 
 
