@@ -23,10 +23,10 @@ jobs:
           python-version: "3.11"
 
       - name: Run ruff check
-        run: uvx ruff check .
+        run: uvx --from ruff==0.3.5 ruff check .
 
       - name: Run ruff format check
-        run: uvx ruff format --check .
+        run: uvx --from ruff==0.3.5 ruff format --check .
 
   typecheck:
     name: Type Check
