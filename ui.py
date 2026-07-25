@@ -39,9 +39,9 @@ class UIManager:
         info_lines = [
             f"Auto-Accept: {auto_accept_status}",
             f"Auto-Requeue: {auto_requeue_status}",
-            f"Primary: {settings.champ_name}",
+            f"Primary ({settings.primary_position or 'position pending'}): {settings.champ_name}",
             f"Primary Backup: {settings.backup_champ_name}",
-            f"Secondary: {settings.secondary_champ_name}",
+            f"Secondary ({settings.secondary_position or 'position pending'}): {settings.secondary_champ_name}",
             f"Secondary Backup: {settings.secondary_backup_champ_name}",
             f"Ban: {settings.ban_name}",
             f"Game Phase: {phase}",

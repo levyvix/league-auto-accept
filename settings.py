@@ -23,6 +23,10 @@ class Settings:
     secondary_backup_champ_name: str = "Unselected"
     secondary_backup_champ_id: str = "0"
 
+    # Position preferences captured from the League lobby
+    primary_position: str = ""
+    secondary_position: str = ""
+
     # Ban selection
     ban_name: str = "Unselected"
     ban_id: str = "0"

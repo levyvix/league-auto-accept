@@ -23,8 +23,9 @@ class AutoAccept:
         self.locked_ban = False
         self.last_chat_room = ""
         self.champ_select_start = 0
-        self.assigned_position: str = "UTILITY"
+        self.assigned_position: str = ""
         self.current_game_mode: str = "CLASSIC"
+        self.is_custom_game: bool = False
         self.selected_pick_champion_id: int = 0
         self._last_swap_signature: str = ""
 
@@ -67,6 +68,9 @@ class AutoAccept:
                     f"PHASE CHECK: {phase} (last={self._last_phase}, came_from_game={self.came_from_game}, auto_requeue={self.settings.auto_requeue})"
                 )
 
+                if phase in ("Lobby", "Matchmaking", "ReadyCheck"):
+                    self._refresh_position_preferences()
+
                 # Handle auto-requeue even if auto_accept is off
                 if phase in ("InProgress", "WaitingForStats"):
                     self.came_from_game = True
@@ -98,15 +102,17 @@ class AutoAccept:
                     # Reset requeue flag when entering any other phase
                     self._requeue_triggered_in_lobby = False
 
-                # Only handle accept/champ select if auto_accept is on
-                if self.settings.auto_accept_on:
-                    if phase == "ReadyCheck":
-                        self._is_searching_for_match = (
-                            False  # Queue popped, no longer searching
-                        )
-                        self._handle_ready_check()
-                    elif phase == "ChampSelect":
-                        self._handle_champ_select()
+                if phase == "ChampSelect" and (
+                    self.settings.auto_accept_on or self.settings.auto_swap_accept
+                ):
+                    self._handle_champ_select()
+
+                # Only handle ready-check accept if auto_accept is on
+                if self.settings.auto_accept_on and phase == "ReadyCheck":
+                    self._is_searching_for_match = (
+                        False  # Queue popped, no longer searching
+                    )
+                    self._handle_ready_check()
 
                 # Track the previous phase for detecting state transitions
                 self._last_phase = phase
@@ -157,20 +163,28 @@ class AutoAccept:
                 self.locked_ban = False
                 self.selected_pick_champion_id = 0
                 self._last_swap_signature = ""
+                self.assigned_position = ""
                 self.last_chat_room = current_chat_room
                 self.champ_select_start = time.time() * 1000
                 self.current_game_mode = self._fetch_game_mode()
 
             local_player_cell_id = session.get("localPlayerCellId")
-            self.assigned_position = self._get_assigned_position(
+            self.is_custom_game = bool(session.get("isCustomGame", False))
+            detected_position = self._get_assigned_position(
                 session, local_player_cell_id
             )
+            if detected_position and detected_position != self.assigned_position:
+                self.assigned_position = detected_position
+                logger.info(f"Assigned position detected: {self.assigned_position}")
 
-            if self.settings.auto_swap_accept:
-                self._handle_position_swaps(session)
+            self._handle_pick_order_swaps(
+                session,
+                local_player_cell_id=local_player_cell_id,
+                auto_accept_enabled=self.settings.auto_swap_accept,
+            )
 
-            # Process actions
-            if not (
+            # Process pick/ban actions only when auto-accept automation is enabled.
+            if self.settings.auto_accept_on and not (
                 self.picked_champ
                 and self.locked_champ
                 and self.picked_ban
@@ -273,29 +287,66 @@ class AutoAccept:
                         action_id, int(self.settings.ban_id), timer, "ban"
                     )
 
-    def _handle_position_swaps(self, session: Dict[str, Any]):
-        """Accept any pending incoming position swap offers."""
-        swaps = session.get("swaps", [])
+    def _handle_pick_order_swaps(
+        self,
+        session: Dict[str, Any],
+        local_player_cell_id: int,
+        auto_accept_enabled: bool,
+    ):
+        """Log and optionally accept incoming pick-order swap requests."""
+        swaps = session.get("swaps")
         if not isinstance(swaps, list):
-            logger.warning(f"Unexpected swaps payload type: {type(swaps).__name__}")
-            return
+            swaps = None
+
+        # Fallback for clients/builds where swaps are not embedded in session payload.
+        if swaps is None:
+            swaps_response = self.lcu.request(
+                "GET", "lol-champ-select/v1/session/swaps"
+            )
+            if swaps_response and swaps_response.ok:
+                try:
+                    response_data = swaps_response.json()
+                except ValueError:
+                    response_data = []
+                if isinstance(response_data, list):
+                    swaps = response_data
+                else:
+                    logger.warning(
+                        f"Unexpected swaps endpoint payload type: {type(response_data).__name__}"
+                    )
+                    swaps = []
+            else:
+                swaps = []
+        elif not swaps:
+            # Small fallback retry when session payload has an empty swaps field.
+            swaps_response = self.lcu.request(
+                "GET", "lol-champ-select/v1/session/swaps"
+            )
+            if swaps_response and swaps_response.ok:
+                try:
+                    response_data = swaps_response.json()
+                except ValueError:
+                    response_data = []
+                if isinstance(response_data, list):
+                    swaps = response_data
 
         # Log only when the swaps snapshot changes to avoid log spam every poll.
         signature_items = []
         for swap in swaps:
             if isinstance(swap, dict):
                 signature_items.append(
-                    f"{swap.get('id')}:{swap.get('state')}:{swap.get('direction')}"
+                    f"{swap.get('id')}:{swap.get('state')}:{swap.get('direction')}:"
+                    f"{swap.get('fromCellId')}->{swap.get('toCellId')}"
                 )
         signature = "|".join(signature_items)
         if signature != self._last_swap_signature:
             received_count = sum(
                 1
                 for swap in swaps
-                if isinstance(swap, dict) and swap.get("state") == "RECEIVED"
+                if self._is_incoming_swap(swap, local_player_cell_id)
             )
             logger.info(
-                f"Swap snapshot changed: total={len(swaps)} received={received_count} "
+                f"Pick-order swap snapshot changed: total={len(swaps)} incoming={received_count} "
                 f"details=[{signature}]"
             )
             self._last_swap_signature = signature
@@ -304,18 +355,47 @@ class AutoAccept:
             return
 
         for swap in swaps:
-            if swap.get("state") == "RECEIVED":
-                swap_id = swap.get("id")
-                logger.info(f"Attempting to accept position swap (id={swap_id})")
-                endpoint = f"lol-champ-select/v1/session/swaps/{swap_id}/accept"
-                response = self.lcu.request("POST", endpoint)
-                if response and response.ok:
-                    logger.info(f"Auto-accepted position swap (id={swap_id})")
-                else:
-                    status = response.status_code if response else "None"
-                    logger.warning(
-                        f"Failed to accept swap (id={swap_id}): status={status}"
-                    )
+            if not self._is_incoming_swap(swap, local_player_cell_id):
+                continue
+            swap_id = swap.get("id")
+            if not auto_accept_enabled:
+                logger.info(
+                    f"Incoming pick-order swap detected (id={swap_id}), "
+                    "auto-swap accept is disabled"
+                )
+                continue
+            logger.info(f"Attempting to accept pick-order swap (id={swap_id})")
+            endpoint = f"lol-champ-select/v1/session/swaps/{swap_id}/accept"
+            response = self.lcu.request("POST", endpoint)
+            if response and response.ok:
+                logger.info(f"Auto-accepted pick-order swap (id={swap_id})")
+            else:
+                status = response.status_code if response else "None"
+                logger.warning(f"Failed to accept swap (id={swap_id}): status={status}")
+
+    def _is_incoming_swap(
+        self, swap: Dict[str, Any], local_player_cell_id: Optional[int] = None
+    ) -> bool:
+        """Return True when swap entry represents an incoming offer to local player."""
+        if not isinstance(swap, dict):
+            return False
+        state = str(swap.get("state", "")).upper()
+        direction = str(swap.get("direction", "")).upper()
+
+        incoming_directions = {"RECEIVED", "INCOMING"}
+        if direction in incoming_directions:
+            return True
+
+        # Some LCU payloads expose incoming/outgoing through target/source cell ids.
+        if isinstance(local_player_cell_id, int):
+            target_keys = ("toCellId", "receiverCellId", "targetCellId")
+            for key in target_keys:
+                value = swap.get(key)
+                if isinstance(value, int) and value == local_player_cell_id:
+                    return True
+
+        # Conservative fallback: only treat RECEIVED as incoming without target info.
+        return state == "RECEIVED"
 
     def _hover_champion(
         self, action_id: int, champion_id: int, action_type: str = "pick"
@@ -386,19 +466,32 @@ class AutoAccept:
 
     def _get_pick_candidates(self) -> list[int]:
         """Return the ordered list of configured pick candidates for the current role."""
-        if self.assigned_position == "UTILITY":
+        position = self.assigned_position
+        if not position:
+            if self.current_game_mode == "CLASSIC" and not self.is_custom_game:
+                logger.info(
+                    "Assigned position is not available yet; postponing champion selection"
+                )
+                return []
+            position = "UTILITY"
+
+        use_primary_pool = self._uses_primary_champion_pool(position)
+        if use_primary_pool is None:
+            return []
+
+        if use_primary_pool:
             candidates = [
                 self.settings.champ_id,
                 self.settings.backup_champ_id,
             ]
-            logger.info("Using primary champion pool for UTILITY")
+            logger.info(f"Using primary champion pool for assigned position {position}")
         else:
             candidates = [
                 self.settings.secondary_champ_id,
                 self.settings.secondary_backup_champ_id,
             ]
             logger.info(
-                f"Using secondary champion pool for assigned position {self.assigned_position}"
+                f"Using secondary champion pool for assigned position {position}"
             )
 
         result: list[int] = []
@@ -410,6 +503,30 @@ class AutoAccept:
             if champ_int > 0 and champ_int not in result:
                 result.append(champ_int)
         return result
+
+    def _uses_primary_champion_pool(self, assigned_position: str) -> Optional[bool]:
+        """Match the assigned position against the saved lobby preferences."""
+        primary_position = self._normalize_position_preference(
+            self.settings.primary_position
+        )
+        secondary_position = self._normalize_position_preference(
+            self.settings.secondary_position
+        )
+
+        if primary_position == "FILL" or assigned_position == primary_position:
+            return True
+        if assigned_position == secondary_position:
+            return False
+        if primary_position:
+            logger.warning(
+                f"Assigned position {assigned_position} does not match saved "
+                f"preferences ({primary_position}, {secondary_position or 'NONE'}); "
+                "skipping automatic champion selection for autofill"
+            )
+            return None
+
+        # Backwards-compatible fallback until lobby preferences are captured.
+        return assigned_position == "UTILITY"
 
     def _get_pick_champion_to_lock(self, current_action_champion_id: int) -> int:
         """Choose which champion should be locked for the current pick action."""
@@ -433,15 +550,99 @@ class AutoAccept:
                 pass
         return "CLASSIC"
 
+    def _refresh_position_preferences(self):
+        """Capture and persist the local player's current lobby position choices."""
+        response = self.lcu.request("GET", "lol-lobby/v2/lobby")
+        if not response or not response.ok:
+            return
+
+        try:
+            lobby = response.json()
+        except (TypeError, ValueError):
+            return
+        if not isinstance(lobby, dict):
+            return
+
+        local_member = lobby.get("localMember", {})
+        if not isinstance(local_member, dict):
+            return
+
+        position_preferences = local_member.get("positionPreferences", {})
+        if not isinstance(position_preferences, dict):
+            position_preferences = {}
+
+        first_position = self._normalize_position_preference(
+            local_member.get("firstPositionPreference")
+            or position_preferences.get("firstPreference")
+        )
+        second_position = self._normalize_position_preference(
+            local_member.get("secondPositionPreference")
+            or position_preferences.get("secondPreference")
+        )
+        if not first_position:
+            return
+
+        if (
+            first_position == self.settings.primary_position
+            and second_position == self.settings.secondary_position
+        ):
+            return
+
+        self.settings.primary_position = first_position
+        self.settings.secondary_position = second_position
+        logger.info(
+            f"Saved lobby position preferences: primary={first_position}, "
+            f"secondary={second_position or 'NONE'}"
+        )
+        if self.on_settings_changed:
+            self.on_settings_changed()
+
     def _get_assigned_position(
-        self, session: Dict[str, Any], local_player_cell_id: int
+        self, session: Dict[str, Any], local_player_cell_id: Any
     ) -> str:
         """Get the assigned position for the local player."""
         for player in session.get("myTeam", []):
-            if player.get("cellId") == local_player_cell_id:
-                position = player.get("assignedPosition", "")
-                return position.upper() if position else "UTILITY"
-        return "UTILITY"
+            if not isinstance(player, dict):
+                continue
+            if str(player.get("cellId")) != str(local_player_cell_id):
+                continue
+            for position_key in (
+                "assignedPosition",
+                "position",
+                "selectedPosition",
+            ):
+                position = self._normalize_position(player.get(position_key))
+                if position:
+                    return position
+        return ""
+
+    @staticmethod
+    def _normalize_position(position: Any) -> str:
+        """Normalize LCU position names and keep missing values unknown."""
+        if not isinstance(position, str):
+            return ""
+
+        normalized = position.strip().upper()
+        aliases = {
+            "ADC": "BOTTOM",
+            "BOT": "BOTTOM",
+            "MID": "MIDDLE",
+            "SUPPORT": "UTILITY",
+            "SUP": "UTILITY",
+        }
+        normalized = aliases.get(normalized, normalized)
+        valid_positions = {"TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"}
+        return normalized if normalized in valid_positions else ""
+
+    @classmethod
+    def _normalize_position_preference(cls, position: Any) -> str:
+        """Normalize a lobby position preference, including the fill option."""
+        normalized = cls._normalize_position(position)
+        if normalized:
+            return normalized
+        if isinstance(position, str) and position.strip().upper() == "FILL":
+            return "FILL"
+        return ""
 
     def _handle_pre_end_of_game(self):
         """Skip honor vote during PreEndOfGame phase."""
