@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/levyvix/league-auto-accept/compare/league-auto-accept-v0.4.0...league-auto-accept-v0.5.0) (2026-07-25)
+
+
+### Features
+
+* select champions based on queued positions ([635ae75](https://github.com/levyvix/league-auto-accept/commit/635ae75d0624a1327b9627ecd82c8674e2ac8d9d))
+
 ## [0.4.0](https://github.com/levyvix/league-auto-accept/compare/league-auto-accept-v0.3.0...league-auto-accept-v0.4.0) (2026-04-18)
 
 
