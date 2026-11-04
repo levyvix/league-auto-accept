@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -45,6 +46,9 @@ func Check(ctx context.Context) (Release, error) {
 	return r, e
 }
 func Stage(ctx context.Context, r Release) (string, error) {
+	if !Newer(r.Tag, Version) {
+		return "", fmt.Errorf("release is not newer than installed version %s", Version)
+	}
 	url := ""
 	for _, a := range r.Assets {
 		if a.Name == "league-auto-accept-go.exe" {
@@ -85,6 +89,40 @@ func Stage(ctx context.Context, r Release) (string, error) {
 		return "", closeErr
 	}
 	return f.Name(), nil
+}
+
+func Newer(tag, current string) bool {
+	parse := func(v string) ([3]int, bool) {
+		var result [3]int
+		v = strings.TrimPrefix(v, "league-auto-accept-v")
+		v = strings.TrimPrefix(v, "v")
+		parts := strings.Split(v, ".")
+		if len(parts) != 3 {
+			return result, false
+		}
+		for i, p := range parts {
+			n, err := strconv.Atoi(p)
+			if err != nil || n < 0 {
+				return result, false
+			}
+			result[i] = n
+		}
+		return result, true
+	}
+	a, ok := parse(tag)
+	if !ok {
+		return false
+	}
+	b, ok := parse(current)
+	if !ok {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return false
 }
 func Launch(staged string) error {
 	target, e := os.Executable()

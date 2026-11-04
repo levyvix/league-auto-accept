@@ -10,6 +10,7 @@ import (
 )
 
 type fakeAPI struct {
+	phase    string
 	calls    []string
 	session  Session
 	payloads []map[string]any
@@ -19,6 +20,10 @@ type fakeAPI struct {
 
 func (f *fakeAPI) Request(_ context.Context, m, p string, b, out any) error {
 	f.calls = append(f.calls, m+" "+p)
+	if p == "lol-gameflow/v1/session" && out != nil {
+		data, _ := json.Marshal(map[string]string{"phase": f.phase})
+		return json.Unmarshal(data, out)
+	}
 	if p == "lol-champ-select/v1/session/pick-order-swaps" && out != nil {
 		data, _ := json.Marshal(f.swaps)
 		return json.Unmarshal(data, out)
@@ -34,6 +39,30 @@ func (f *fakeAPI) Request(_ context.Context, m, p string, b, out any) error {
 		return json.Unmarshal(data, out)
 	}
 	return nil
+}
+
+func TestEnableAcceptDuringReadyCheck(t *testing.T) {
+	f := &fakeAPI{phase: "ReadyCheck"}
+	e := New(f)
+	s := config.Defaults()
+	if err := e.Step(context.Background(), &s); err != nil {
+		t.Fatal(err)
+	}
+	s.AutoAccept = true
+	for i := 0; i < 2; i++ {
+		if err := e.Step(context.Background(), &s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := 0
+	for _, call := range f.calls {
+		if call == "POST lol-matchmaking/v1/ready-check/accept" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("want one accept after enabling, got %d", count)
+	}
 }
 
 func TestPickOrderSwapEndpointAndFallback(t *testing.T) {

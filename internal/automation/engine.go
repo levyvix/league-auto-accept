@@ -56,6 +56,7 @@ type Engine struct {
 	room                          string
 	selected                      map[int]int
 	lastPhase                     string
+	readyAccepted                 bool
 	requeued, honor               bool
 }
 
@@ -137,6 +138,9 @@ func (e *Engine) Step(ctx context.Context, s *config.Settings) error {
 		return err
 	}
 	e.Phase = flow.Phase
+	if e.Phase != "ReadyCheck" {
+		e.readyAccepted = false
+	}
 	e.Mode = flow.Data.Queue.Mode
 	e.Notice = ""
 	if e.Phase == "Lobby" || e.Phase == "Matchmaking" || e.Phase == "ReadyCheck" {
@@ -155,10 +159,11 @@ func (e *Engine) Step(ctx context.Context, s *config.Settings) error {
 	}
 	switch e.Phase {
 	case "ReadyCheck":
-		if s.AutoAccept && e.lastPhase != "ReadyCheck" {
+		if s.AutoAccept && !e.readyAccepted {
 			if err := e.API.Request(ctx, "POST", "lol-matchmaking/v1/ready-check/accept", nil, nil); err != nil {
 				return err
 			}
+			e.readyAccepted = true
 		}
 	case "ChampSelect":
 		if s.AutoAccept || s.AutoSwap {
