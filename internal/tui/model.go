@@ -9,6 +9,7 @@ import (
 	"github.com/levyvix/league-auto-accept/internal/automation"
 	"github.com/levyvix/league-auto-accept/internal/config"
 	"github.com/levyvix/league-auto-accept/internal/lcu"
+	"github.com/levyvix/league-auto-accept/internal/update"
 	"log"
 	"sort"
 	"strconv"
@@ -21,6 +22,14 @@ type Champion struct {
 	Name string `json:"name"`
 }
 type tick struct{}
+type releaseMsg struct {
+	release update.Release
+	err     error
+}
+type stagedMsg struct {
+	path string
+	err  error
+}
 type result struct {
 	engine    *automation.Engine
 	settings  config.Settings
@@ -38,6 +47,7 @@ type Model struct {
 	busy                        bool
 	status                      string
 	ctx                         context.Context
+	release                     update.Release
 }
 
 func New(ctx context.Context, s config.Settings, path string) Model {
@@ -45,8 +55,10 @@ func New(ctx context.Context, s config.Settings, path string) Model {
 	input.Placeholder = "Search champion..."
 	return Model{ctx: ctx, Settings: s, path: path, input: input, width: 80, height: 30, status: "Connecting to League Client..."}
 }
-func after() tea.Cmd          { return tea.Tick(time.Second, func(time.Time) tea.Msg { return tick{} }) }
-func (m Model) Init() tea.Cmd { return after() }
+func after() tea.Cmd { return tea.Tick(time.Second, func(time.Time) tea.Msg { return tick{} }) }
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(after(), func() tea.Msg { r, e := update.Check(m.ctx); return releaseMsg{r, e} })
+}
 func (m Model) poll() tea.Cmd {
 	s, e, champs, ctx := m.Settings, m.engine, m.champions, m.ctx
 	return func() tea.Msg {
@@ -90,6 +102,22 @@ func (m Model) filtered() []Champion {
 }
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
+	case releaseMsg:
+		if v.err == nil {
+			m.release = v.release
+			m.status = "Latest release: " + v.release.Tag + " · U to check / download native update"
+		}
+		return m, nil
+	case stagedMsg:
+		if v.err != nil {
+			m.status = v.err.Error()
+			return m, nil
+		}
+		if err := update.Launch(v.path); err != nil {
+			m.status = err.Error()
+			return m, nil
+		}
+		return m, tea.Quit
 	case tea.WindowSizeMsg:
 		m.width = v.Width
 		m.height = v.Height
@@ -198,6 +226,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch key {
+		case "u":
+			if m.release.Tag == "" {
+				return m, func() tea.Msg { r, e := update.Check(m.ctx); return releaseMsg{r, e} }
+			}
+			m.screen = "update"
+		case "y":
+			if m.screen == "update" {
+				r, ctx := m.release, m.ctx
+				m.status = "Downloading native update..."
+				return m, func() tea.Msg { p, e := update.Stage(ctx, r); return stagedMsg{p, e} }
+			}
 		case "1":
 			m.Settings.AutoAccept = !m.Settings.AutoAccept
 			m.save()
@@ -233,6 +272,8 @@ func (m Model) View() tea.View {
 	}
 	lines := []string{title.Render("LEAGUE AUTO ACCEPT  /  GO"), muted.Render("Native LCU automation · foreground session"), "", accent.Render("Phase: " + phase + "   Position: " + position), ""}
 	switch m.screen {
+	case "update":
+		lines = append(lines, title.Render("Native update"), "Latest: "+m.release.Tag, m.release.URL, "Y  Download and restart · Esc  Cancel")
 	case "settings":
 		lines = append(lines, title.Render("Automation settings"), fmt.Sprintf("P  Auto-pick       %s", on(m.Settings.AutoPick)), fmt.Sprintf("A  Auto-ban        %s", on(m.Settings.AutoBan)), fmt.Sprintf("L  Instant lock    %s", on(m.Settings.InstaLock)), fmt.Sprintf("B  Instant ban     %s", on(m.Settings.InstaBan)), fmt.Sprintf("R  Auto-requeue    %s", on(m.Settings.AutoRequeue)), fmt.Sprintf("W  Accept swaps    %s", on(m.Settings.AutoSwap)), fmt.Sprintf("S  Save settings   %s", on(m.Settings.AutoSave)), "", "Esc / Q  Back")
 	case "picker":

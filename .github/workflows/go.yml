@@ -1,0 +1,21 @@
+name: Go
+on:
+  push:
+    branches: [main, feat/golang-rewrite]
+  pull_request:
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+      - run: go vet ./...
+      - run: go build -trimpath -o dist/league-auto-accept-go.exe ./cmd/league-auto-accept
+      - uses: actions/upload-artifact@v4
+        with:
+          name: league-auto-accept-go-windows
+          path: dist/league-auto-accept-go.exe

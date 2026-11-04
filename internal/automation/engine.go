@@ -100,10 +100,18 @@ func (e *Engine) Preferences(ctx context.Context, s *config.Settings) error {
 		Local struct {
 			First  string `json:"firstPositionPreference"`
 			Second string `json:"secondPositionPreference"`
+			Nested struct {
+				First  string `json:"firstPreference"`
+				Second string `json:"secondPreference"`
+			} `json:"positionPreferences"`
 		} `json:"localMember"`
 	}
 	if err := e.API.Request(ctx, "GET", "lol-lobby/v2/lobby", nil, &lobby); err != nil {
 		return err
+	}
+	if lobby.Local.First == "" {
+		lobby.Local.First = lobby.Local.Nested.First
+		lobby.Local.Second = lobby.Local.Nested.Second
 	}
 	if lobby.Local.First != "" {
 		s.PrimaryPosition = Normalize(lobby.Local.First)
@@ -166,6 +174,10 @@ func (e *Engine) Step(ctx context.Context, s *config.Settings) error {
 			}
 		}
 	case "Lobby":
+		if e.lastPhase == "Matchmaking" || e.lastPhase == "ReadyCheck" {
+			s.AutoRequeue = false
+			e.Notice = "Queue cancelled: auto-requeue disabled"
+		}
 		if s.AutoRequeue && !e.requeued {
 			if err := e.API.Request(ctx, "POST", "lol-lobby/v2/lobby/matchmaking/search", nil, nil); err != nil {
 				return err

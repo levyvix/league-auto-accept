@@ -3,14 +3,28 @@ package main
 import (
 	tea "charm.land/bubbletea/v2"
 	"context"
+	"flag"
 	"fmt"
 	"github.com/levyvix/league-auto-accept/internal/config"
 	"github.com/levyvix/league-auto-accept/internal/tui"
+	"github.com/levyvix/league-auto-accept/internal/update"
 	"log"
 	"os"
 )
 
 func main() {
+	replace := flag.String("replace", "", "Executable to replace after update")
+	wait := flag.Int("wait", 0, "Process to wait for")
+	flag.Parse()
+	if *replace != "" {
+		if *wait <= 0 {
+			return
+		}
+		if err := update.Replace(*replace, *wait); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		return
+	}
 	f, err := os.OpenFile("league_auto_accept.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
