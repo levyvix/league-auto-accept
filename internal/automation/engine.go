@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/levyvix/league-auto-accept/internal/config"
 	"github.com/levyvix/league-auto-accept/internal/lcu"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -209,11 +210,20 @@ func (e *Engine) Select(ctx context.Context, s config.Settings) error {
 		}
 	}
 	if s.AutoSwap {
-		swaps := append(session.Swaps, session.PickOrderSwaps...)
+		swaps := session.PickOrderSwaps
+		if len(swaps) == 0 {
+			if err := e.API.Request(ctx, "GET", "lol-champ-select/v1/session/pick-order-swaps", nil, &swaps); err != nil {
+				log.Printf("Cannot load pick-order swaps: %v", err)
+			}
+		}
 		for _, swap := range swaps {
-			if swap.State == "RECEIVED" || swap.Direction == "INCOMING" || swap.Direction == "RECEIVED" {
-				if err := e.API.Request(ctx, "POST", fmt.Sprintf("lol-champ-select/v1/session/swaps/%d/accept", swap.ID), nil, nil); err != nil {
+			state, direction := strings.ToUpper(swap.State), strings.ToUpper(swap.Direction)
+			if state == "RECEIVED" || direction == "INCOMING" || direction == "RECEIVED" {
+				if err := e.API.Request(ctx, "POST", fmt.Sprintf("lol-champ-select/v1/session/pick-order-swaps/%d/accept", swap.ID), nil, nil); err != nil {
 					e.Notice = err.Error()
+					log.Printf("Accept pick-order swap %d failed: %v", swap.ID, err)
+				} else {
+					log.Printf("Accepted pick-order swap %d", swap.ID)
 				}
 			}
 		}

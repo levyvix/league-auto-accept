@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/levyvix/league-auto-accept/internal/config"
+	"strings"
 	"testing"
 )
 
@@ -13,10 +14,15 @@ type fakeAPI struct {
 	session  Session
 	payloads []map[string]any
 	reject   int
+	swaps    []Swap
 }
 
 func (f *fakeAPI) Request(_ context.Context, m, p string, b, out any) error {
 	f.calls = append(f.calls, m+" "+p)
+	if p == "lol-champ-select/v1/session/pick-order-swaps" && out != nil {
+		data, _ := json.Marshal(f.swaps)
+		return json.Unmarshal(data, out)
+	}
 	if b, ok := b.(map[string]any); ok {
 		f.payloads = append(f.payloads, b)
 		if b["championId"] == f.reject {
@@ -28,6 +34,33 @@ func (f *fakeAPI) Request(_ context.Context, m, p string, b, out any) error {
 		return json.Unmarshal(data, out)
 	}
 	return nil
+}
+
+func TestPickOrderSwapEndpointAndFallback(t *testing.T) {
+	for _, embedded := range []bool{true, false} {
+		swaps := []Swap{{ID: 7, State: "RECEIVED"}, {ID: 8, State: "SENT"}, {ID: 9, State: "DECLINED"}}
+		f := &fakeAPI{}
+		if embedded {
+			f.session.PickOrderSwaps = swaps
+		} else {
+			f.swaps = swaps
+		}
+		s := config.Defaults()
+		s.AutoSwap = true
+		s.AutoAccept = false
+		if err := New(f).Select(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+		posts := []string{}
+		for _, call := range f.calls {
+			if strings.HasPrefix(call, "POST ") {
+				posts = append(posts, call)
+			}
+		}
+		if len(posts) != 1 || posts[0] != "POST lol-champ-select/v1/session/pick-order-swaps/7/accept" {
+			t.Fatalf("embedded=%v: %v", embedded, f.calls)
+		}
+	}
 }
 
 func TestBackupIsHoveredAndLocked(t *testing.T) {
