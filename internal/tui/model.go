@@ -125,7 +125,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case releaseMsg:
 		if v.err == nil {
 			m.release = v.release
-			m.status = "Latest release: " + v.release.Tag + " · U to check / download native update"
 		}
 		return m, nil
 	case stagedMsg:
@@ -307,10 +306,10 @@ func (m Model) View() tea.View {
 		phase = m.engine.Phase
 		position = m.engine.Position
 	}
-	lines := []string{title.Render("LEAGUE AUTO ACCEPT  /  GO"), muted.Render("Native LCU automation · foreground session"), "", accent.Render("Phase: " + phase + "   Position: " + position), ""}
+	lines := []string{title.Render("LEAGUE AUTO ACCEPT"), "", accent.Render("Phase: " + phase + "   Position: " + position), ""}
 	switch m.screen {
 	case "update":
-		lines = append(lines, title.Render("Native update"), "Latest: "+m.release.Tag, m.release.URL, "Y  Download and restart · Esc  Cancel")
+		lines = append(lines, title.Render("Update"), "Latest: "+m.release.Tag, m.release.URL, "Y  Download and restart · Esc  Cancel")
 	case "settings":
 		lines = append(lines, title.Render("Automation settings"), fmt.Sprintf("P  Auto-pick       %s", on(m.Settings.AutoPick)), fmt.Sprintf("A  Auto-ban        %s", on(m.Settings.AutoBan)), fmt.Sprintf("L  Instant lock    %s", on(m.Settings.InstaLock)), fmt.Sprintf("B  Instant ban     %s", on(m.Settings.InstaBan)), fmt.Sprintf("R  Auto-requeue    %s", on(m.Settings.AutoRequeue)), fmt.Sprintf("W  Accept swaps    %s", on(m.Settings.AutoSwap)), fmt.Sprintf("S  Save settings   %s", on(m.Settings.AutoSave)), "", "Esc / Q  Back")
 	case "picker":
@@ -328,7 +327,7 @@ func (m Model) View() tea.View {
 		}
 		lines = append(lines, "", "↑/↓ Navigate · Enter Select · Esc Back")
 	default:
-		lines = append(lines, fmt.Sprintf("Auto-accept %s   Pick %s   Ban %s", on(m.Settings.AutoAccept), on(m.Settings.AutoPick), on(m.Settings.AutoBan)), "", fmt.Sprintf("Primary   %-10s  %s / %s", m.Settings.PrimaryPosition, m.Settings.ChampName, m.Settings.BackupName), fmt.Sprintf("Secondary %-10s  %s / %s", m.Settings.SecondaryPosition, m.Settings.SecondaryName, m.Settings.SecondaryBackupName), "Ban: "+m.Settings.BanName, "", muted.Render("Autofill: champion selection paused"), "", "1  Toggle automation   2  Champions   3  Ban", "4  Settings            Q  Quit")
+		lines = append(lines, fmt.Sprintf("Auto-accept %s   Pick %s   Ban %s", on(m.Settings.AutoAccept), on(m.Settings.AutoPick), on(m.Settings.AutoBan)), "", fmt.Sprintf("Primary   %-10s  %s / %s", m.Settings.PrimaryPosition, m.Settings.ChampName, m.Settings.BackupName), fmt.Sprintf("Secondary %-10s  %s / %s", m.Settings.SecondaryPosition, m.Settings.SecondaryName, m.Settings.SecondaryBackupName), "Ban: "+m.Settings.BanName, "", "1  Toggle automation   2  Champions   3  Ban", "4  Settings            Q  Quit")
 	}
 	if m.status != "" {
 		lines = append(lines, "", muted.Render(m.status))
