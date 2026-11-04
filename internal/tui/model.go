@@ -136,6 +136,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			log.Print(v.err)
 		} else {
 			m.status = v.engine.Notice
+			if v.engine.Notice == "Queue cancelled: auto-requeue disabled" {
+				m.Settings.AutoRequeue = false
+				m.save()
+			}
 			if m.Settings.PrimaryPosition != v.settings.PrimaryPosition || m.Settings.SecondaryPosition != v.settings.SecondaryPosition {
 				m.Settings.PrimaryPosition = v.settings.PrimaryPosition
 				m.Settings.SecondaryPosition = v.settings.SecondaryPosition
