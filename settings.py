@@ -39,6 +39,8 @@ class Settings:
 
     # Behavior toggles
     auto_accept_on: bool = False
+    auto_pick: bool = True
+    auto_ban: bool = True
     insta_lock: bool = False
     insta_ban: bool = False
     auto_requeue: bool = False

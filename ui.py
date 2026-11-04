@@ -212,6 +212,8 @@ class UIManager:
     def build_settings_menu(self, settings) -> Panel:
         """Build settings menu panel."""
         lines = [
+            f"Auto-Pick: {'ON' if settings.auto_pick else 'OFF'}  (Press [cyan]P[/cyan])",
+            f"Auto-Ban: {'ON' if settings.auto_ban else 'OFF'}  (Press [cyan]A[/cyan])",
             f"Insta Lock: [{'green' if settings.insta_lock else 'red'}]{'ON' if settings.insta_lock else 'OFF'}[/]  (Press [cyan]L[/cyan])",
             f"Insta Ban: [{'green' if settings.insta_ban else 'red'}]{'ON' if settings.insta_ban else 'OFF'}[/]  (Press [cyan]B[/cyan])",
             f"Auto-Save: [{'green' if settings.save_settings else 'red'}]{'ON' if settings.save_settings else 'OFF'}[/]  (Press [cyan]S[/cyan])",
