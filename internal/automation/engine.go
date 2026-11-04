@@ -58,6 +58,8 @@ type Engine struct {
 	lastPhase                     string
 	readyAccepted                 bool
 	requeued, honor               bool
+	honorSkippedAt                time.Time
+	playedAgain                   bool
 }
 
 func New(api lcu.API) *Engine { return &Engine{API: api, selected: map[int]int{}} }
@@ -154,8 +156,10 @@ func (e *Engine) Step(ctx context.Context, s *config.Settings) error {
 	if e.Phase == "Matchmaking" {
 		e.requeued = false
 	}
-	if e.Phase == "InProgress" {
+	if e.Phase == "InProgress" || e.Phase == "WaitingForStats" {
 		e.honor = false
+		e.honorSkippedAt = time.Time{}
+		e.playedAgain = false
 	}
 	switch e.Phase {
 	case "ReadyCheck":
@@ -171,17 +175,9 @@ func (e *Engine) Step(ctx context.Context, s *config.Settings) error {
 				return err
 			}
 		}
-	case "PreEndOfGame":
-		if s.AutoRequeue && !e.honor {
-			if err := e.API.Request(ctx, "POST", "lol-honor-v2/v1/skip-honor-vote", nil, nil); err == nil {
-				e.honor = true
-			}
-		}
-	case "EndOfGame":
-		if s.AutoRequeue && !e.requeued {
-			if err := e.API.Request(ctx, "POST", "lol-lobby/v2/play-again", nil, nil); err != nil {
-				return err
-			}
+	case "PreEndOfGame", "EndOfGame":
+		if s.AutoRequeue {
+			e.handlePostGame(ctx)
 		}
 	case "Lobby":
 		if e.lastPhase == "Matchmaking" || e.lastPhase == "ReadyCheck" {
@@ -197,6 +193,32 @@ func (e *Engine) Step(ctx context.Context, s *config.Settings) error {
 	}
 	e.lastPhase = e.Phase
 	return nil
+}
+
+func (e *Engine) handlePostGame(ctx context.Context) {
+	if !e.honor {
+		if err := e.API.Request(ctx, "POST", "lol-honor-v2/v1/skip-honor-vote", nil, nil); err != nil {
+			e.Notice = "Could not skip honor; retrying"
+			log.Printf("Skip honor failed in %s: %v", e.Phase, err)
+		} else {
+			e.honor = true
+			e.honorSkippedAt = time.Now()
+			log.Print("Honor vote skipped")
+		}
+	}
+	// Let the client dismiss the ballot without blocking terminal input.
+	if e.honor && time.Since(e.honorSkippedAt) < 2*time.Second {
+		return
+	}
+	if !e.playedAgain {
+		if err := e.API.Request(ctx, "POST", "lol-lobby/v2/play-again", nil, nil); err != nil {
+			e.Notice = "Could not return to lobby; retrying"
+			log.Printf("Play Again failed in %s: %v", e.Phase, err)
+		} else {
+			e.playedAgain = true
+			log.Print("Play Again accepted")
+		}
+	}
 }
 func (e *Engine) Select(ctx context.Context, s config.Settings) error {
 	var session Session

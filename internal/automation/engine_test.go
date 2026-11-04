@@ -7,6 +7,7 @@ import (
 	"github.com/levyvix/league-auto-accept/internal/config"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeAPI struct {
@@ -16,10 +17,14 @@ type fakeAPI struct {
 	payloads []map[string]any
 	reject   int
 	swaps    []Swap
+	failPath string
 }
 
 func (f *fakeAPI) Request(_ context.Context, m, p string, b, out any) error {
 	f.calls = append(f.calls, m+" "+p)
+	if p == f.failPath {
+		return fmt.Errorf("client not ready")
+	}
 	if p == "lol-gameflow/v1/session" && out != nil {
 		data, _ := json.Marshal(map[string]string{"phase": f.phase})
 		return json.Unmarshal(data, out)
@@ -39,6 +44,62 @@ func (f *fakeAPI) Request(_ context.Context, m, p string, b, out any) error {
 		return json.Unmarshal(data, out)
 	}
 	return nil
+}
+
+func TestHonorThenPlayAgainBeforeEndOfGame(t *testing.T) {
+	f := &fakeAPI{phase: "PreEndOfGame"}
+	e := New(f)
+	s := config.Defaults()
+	s.AutoRequeue = true
+	if err := e.Step(context.Background(), &s); err != nil {
+		t.Fatal(err)
+	}
+	if !e.honor || e.playedAgain {
+		t.Fatal("honor should precede lobby transition")
+	}
+	e.honorSkippedAt = time.Now().Add(-3 * time.Second)
+	if err := e.Step(context.Background(), &s); err != nil {
+		t.Fatal(err)
+	}
+	if !e.playedAgain {
+		t.Fatal("must play again while still PreEndOfGame")
+	}
+	f.phase = "Lobby"
+	if err := e.Step(context.Background(), &s); err != nil {
+		t.Fatal(err)
+	}
+	if !e.requeued {
+		t.Fatal("must start search after reaching lobby")
+	}
+}
+
+func TestHonorRetryInEndOfGame(t *testing.T) {
+	f := &fakeAPI{phase: "EndOfGame", failPath: "lol-honor-v2/v1/skip-honor-vote"}
+	e := New(f)
+	s := config.Defaults()
+	s.AutoRequeue = true
+	_ = e.Step(context.Background(), &s)
+	if e.honor {
+		t.Fatal("failed skip must retry")
+	}
+	f.failPath = ""
+	_ = e.Step(context.Background(), &s)
+	if !e.honor {
+		t.Fatal("skip must retry in EndOfGame")
+	}
+	f.phase = "WaitingForStats"
+	_ = e.Step(context.Background(), &s)
+	if e.honor || e.playedAgain {
+		t.Fatal("post-game state must reset for next game")
+	}
+}
+
+func TestDisabledRequeueDoesNotSkipHonor(t *testing.T) {
+	f := &fakeAPI{phase: "PreEndOfGame"}
+	_ = New(f).Step(context.Background(), new(config.Settings))
+	if len(f.calls) != 1 {
+		t.Fatal(f.calls)
+	}
 }
 
 func TestEnableAcceptDuringReadyCheck(t *testing.T) {
