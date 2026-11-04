@@ -327,7 +327,7 @@ func (m Model) View() tea.View {
 		}
 		lines = append(lines, "", "↑/↓ Navigate · Enter Select · Esc Back")
 	default:
-		lines = append(lines, fmt.Sprintf("Auto-accept %s   Pick %s   Ban %s", on(m.Settings.AutoAccept), on(m.Settings.AutoPick), on(m.Settings.AutoBan)), "", fmt.Sprintf("Primary   %-10s  %s / %s", m.Settings.PrimaryPosition, m.Settings.ChampName, m.Settings.BackupName), fmt.Sprintf("Secondary %-10s  %s / %s", m.Settings.SecondaryPosition, m.Settings.SecondaryName, m.Settings.SecondaryBackupName), "Ban: "+m.Settings.BanName, "", "1  Toggle automation   2  Champions   3  Ban", "4  Settings            Q  Quit")
+		lines = append(lines, fmt.Sprintf("Auto-accept %s   Pick %s   Ban %s", on(m.Settings.AutoAccept), on(m.Settings.AutoPick), on(m.Settings.AutoBan)), "", fmt.Sprintf("Primary   %-10s  %s / %s", m.Settings.PrimaryPosition, m.Settings.ChampName, m.Settings.BackupName), fmt.Sprintf("Secondary %-10s  %s / %s", m.Settings.SecondaryPosition, m.Settings.SecondaryName, m.Settings.SecondaryBackupName), "Ban: "+m.Settings.BanName, "", "1  Toggle accept       2  Champions   3  Ban", "4  Settings            Q  Quit")
 	}
 	if m.status != "" {
 		lines = append(lines, "", muted.Render(m.status))
