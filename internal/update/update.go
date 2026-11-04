@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const Version = "0.5.0"
+const Version = "0.5.0" // x-release-please-version
 
 type Release struct {
 	Tag    string `json:"tag_name"`
