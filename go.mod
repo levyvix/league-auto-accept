@@ -3,9 +3,14 @@ module github.com/levyvix/league-auto-accept
 go 1.26.2
 
 require (
-	charm.land/bubbles/v2 v2.2.1 // indirect
-	charm.land/bubbletea/v2 v2.1.1 // indirect
-	charm.land/lipgloss/v2 v2.0.6 // indirect
+	charm.land/bubbles/v2 v2.2.1
+	charm.land/bubbletea/v2 v2.1.1
+	charm.land/lipgloss/v2 v2.0.6
+	github.com/shirou/gopsutil/v4 v4.26.10
+)
+
+require (
+	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4 // indirect
 	github.com/charmbracelet/x/ansi v0.11.9 // indirect
@@ -22,7 +27,6 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/shirou/gopsutil/v4 v4.26.10 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/xo/terminfo v1.0.0 // indirect
