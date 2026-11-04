@@ -234,6 +234,8 @@ class AutoAccept:
         timer: Dict[str, Any],
     ):
         """Handle champion pick action."""
+        if not self.settings.auto_pick:
+            return
         if champion_id == 0:
             self.picked_champ = False
             self.selected_pick_champion_id = 0
@@ -271,6 +273,8 @@ class AutoAccept:
         timer: Dict[str, Any],
     ):
         """Handle champion ban action."""
+        if not self.settings.auto_ban:
+            return
         phase = timer.get("phase", "PLANNING")
 
         if is_in_progress and phase != "PLANNING":

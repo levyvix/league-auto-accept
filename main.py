@@ -305,6 +305,17 @@ class LeagueAutoAcceptApp:
                 save_settings(self.settings)
             logger.info(f"Insta-lock toggled: {self.settings.insta_lock}")
 
+        elif key_char in ("P", "A"):
+            setting_name = "auto_pick" if key_char == "P" else "auto_ban"
+            setattr(
+                self.settings, setting_name, not getattr(self.settings, setting_name)
+            )
+            if self.settings.save_settings:
+                save_settings(self.settings)
+            logger.info(
+                f"{setting_name} toggled: {getattr(self.settings, setting_name)}"
+            )
+
         elif key_char == "B":
             self.settings.insta_ban = not self.settings.insta_ban
             if self.settings.save_settings:
