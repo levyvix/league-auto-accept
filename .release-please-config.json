@@ -1,13 +1,13 @@
 {
   "packages": {
     ".": {
-      "release-type": "python",
+      "release-type": "simple",
       "package-name": "league-auto-accept",
-      "version-file": "pyproject.toml",
+      "version-file": "version.txt",
       "extra-files": [
         {
           "type": "generic",
-          "path": "version.py"
+          "path": "internal/update/update.go"
         }
       ]
     }

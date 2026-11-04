@@ -1,106 +1,37 @@
-### Building Executable
-```bash
-uv sync --all-groups  # Install dev dependencies
-pyinstaller --onefile --name league-auto-accept main.py
+# Repository guidance
+
+Use descriptive feature names in branches, code, comments, commits and PRs.
+Do not include the assistant product name in repository-facing text.
+
+## Build and validate
+
+```powershell
+go test ./...
+go vet ./...
+go build -trimpath -ldflags="-s -w" -o dist/league-auto-accept.exe ./cmd/league-auto-accept
 ```
 
-## Repo Preferences
-
-- Never use `codex` in code, comments, branch names, PR titles, commit messages, or other repository-facing text.
-
-## Project Overview
-
-**League Auto Accept** is a League of Legends automation tool that monitors the game client and automatically:
-- Accepts ready checks when the queue pops
-- Selects (hovers) and locks in your configured champion during champion select
-- Optionally auto-bans a champion
-- Auto-requeues after games
+Use Go 1.26.2 or newer. Run gofmt on modified Go sources. The executable targets
+Windows and discovers LeagueClientUx.exe through gopsutil. Keep builds in dist/.
 
 ## Architecture
 
-### Core Components
+- cmd/league-auto-accept: lifecycle, log file and update helper entry point.
+- internal/config: settings defaults, legacy-compatible JSON and atomic saving.
+- internal/lcu: local HTTPS transport, process port/token discovery and request deadlines.
+- internal/automation: gameflow, lobby preferences, picks, bans, swaps and requeue.
+- internal/tui: Bubble Tea v2 model with Bubbles input and Lip Gloss styling.
+- internal/update: release discovery, native asset download and replacement helper.
 
-**1. Main Application Loop (`main.py`)**
-- Entry point: `LeagueAutoAcceptApp` class
-- Manages three main threads:
-  - **Monitor thread**: Detects League Client connection via `get_lcu_client()`
-  - **Automation thread**: Runs the core automation logic
-  - **Update thread**: Checks for application updates
-- Handles terminal UI rendering using Rich library's `Live` display
-- Manages input handling and screen navigation (main → picker → settings)
+Settings use the existing user .league_auto_accept/settings.json location.
+Preserve JSON keys for upgrades. Never log auth tokens or use the local LCU TLS
+exception for external requests. Unknown assigned positions and autofill must
+not trigger a guessed pick. Auto-pick and auto-ban switches block their actions.
+Use session/pick-order-swaps for pick-order offers; champion swaps are distinct.
 
-**2. Automation Logic (`main_logic.py`)**
-- `AutoAccept` class: Core state machine for game phase handling
-- Monitors the game flow via the LCU API endpoint `lol-gameflow/v1/session`
-- Handles distinct phases:
-  - `ReadyCheck`: Accepts the queue pop
-  - `ChampSelect`: Hovers/locks champion and applies bans
-  - `InProgress/WaitingForStats/EndOfGame`: Auto-requeue handling
-- Tracks session state (what's been picked/locked, etc.)
-- Key methods: `_handle_ready_check()`, `_handle_champ_select()`, `_handle_requeue()`
+## Releases
 
-**3. League Client Communication (`lcu.py`)**
-- `LCUClient`: HTTP client for the League Client Update (LCU) API
-- Detects the League Client process (`LeagueClientUx.exe`) via psutil
-- Extracts auth token and port from process command line
-- Makes HTTPS requests to internal client API endpoints (uses self-signed certs)
-- All API calls go through `client.request(method, endpoint, json_data)`
-
-**4. Settings Management (`settings.py`)**
-- `Settings` dataclass: Persists user configuration to `settings.json`
-- Tracks champion selections (primary + backups, both roles)
-- Stores ban preferences, spell selections
-- Contains behavior toggles (auto_accept_on, insta_lock, auto_requeue, etc.)
-- Delay configurations for timing actions
-- Recent champions/bans list for quick reselection
-
-**5. Terminal UI (`ui.py`)**
-- `UIManager`: Rich-based terminal interface
-- Screens:
-  - Main status screen: Shows current settings and game phase
-  - Champion picker: Searchable list with keyboard navigation (arrows, typing, backspace)
-  - Settings menu: Toggle various options
-  - Waiting screen: Displayed while client is offline
-- Non-blocking input handling using `msvcrt` (Windows-specific)
-
-**6. Data Loading (`data.py`)**
-- `ChampionInfo` dataclass: Champion metadata (name, id, image path, etc.)
-- `load_champions()`: Fetches owned champions from LCU API for the current summoner
-- `load_summoner_id()`: Gets summoner ID from client
-
-**7. Versioning & Updates (`version.py`, `updater.py`)**
-- Tracks current application version
-- `check_for_updates()`: Queries GitHub releases API for newer versions
-- Provides in-app update notifications
-
-## Data Flow
-
-```
-Main App Loop
-├── Connects to League Client
-├── Loads champion/summoner data
-└── Runs AutoAccept state machine
-    ├── Monitors game phase via LCU API
-    ├── On ReadyCheck → POST accept to LCU
-    ├── On ChampSelect → GET session, hover/lock champion
-    └── On EndOfGame → Auto-requeue if enabled
-```
-
-## Key API Endpoints Used
-
-| Purpose | Endpoint | Method |
-|---------|----------|--------|
-| Game flow phase | `lol-gameflow/v1/session` | GET |
-| Accept queue | `lol-matchmaking/v1/ready-check/accept` | POST |
-| Champ select data | `lol-champ-select/v1/session` | GET |
-| Pick/ban actions | `lol-champ-select/v1/session/actions/{action-id}` | PATCH |
-| Summoner info | `lol-summoner/v1/current-summoner` | GET |
-| Champions | `lol-champions/v1/owned-champions-minimal` | GET |
-
-## Important Notes
-
-- **Windows-only**: Uses `msvcrt` for non-blocking input; will not work on macOS/Linux without modifications
-- **No daemon mode**: Application runs in foreground; terminates when window closes or Ctrl+C pressed
-- **Timing-dependent**: Champion hover/lock/ban timing relies on delay settings in `settings.json` to work reliably
-- **Logging**: All logs written to `league_auto_accept.log` (console output suppressed to keep UI clean)
-- **Self-signed SSL**: The League Client uses self-signed certificates; SSL verification is disabled in `requests`
+version.txt is managed by Release Please. Its generic extra-file updater tracks
+the annotated version constant in internal/update/update.go. Windows releases
+publish league-auto-accept.exe plus a league-auto-accept-go.exe compatibility
+alias for installed native updaters. Both files must contain the same build.

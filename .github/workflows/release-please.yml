@@ -31,28 +31,23 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: uv sync --all-groups
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Build executable
         run: |
-          uv run pyinstaller `
-            --onefile `
-            --name league-auto-accept `
-            --console `
-            main.py
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags="-s -w" -o dist/league-auto-accept.exe ./cmd/league-auto-accept
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item dist/league-auto-accept.exe dist/league-auto-accept-go.exe
 
       - name: Upload to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ needs.release-please.outputs.tag_name }} dist/league-auto-accept.exe
+          gh release upload ${{ needs.release-please.outputs.tag_name }} dist/league-auto-accept.exe dist/league-auto-accept-go.exe

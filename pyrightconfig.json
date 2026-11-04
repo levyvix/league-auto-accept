@@ -1,7 +1,0 @@
-{
-  "pythonVersion": "3.10",
-  "typeCheckingMode": "standard",
-  "reportMissingImports": false,
-  "reportMissingModuleSource": false,
-  "include": ["*.py"]
-}
