@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.0.0](https://github.com/levyvix/league-auto-accept/compare/league-auto-accept-v0.5.0...league-auto-accept-v1.0.0) (2026-11-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* replace Python application with native Go implementation
+
+### Features
+
+* add native updates and integration checks ([5d5da90](https://github.com/levyvix/league-auto-accept/commit/5d5da90c8dfdb8a4b7915b6f33a86e966fc36f55))
+* add separate auto-pick and auto-ban toggles ([da6150c](https://github.com/levyvix/league-auto-accept/commit/da6150c2a8e04b54ab09b306b65edd59e74de21b))
+* bootstrap native Go client and compatible settings ([51ec91e](https://github.com/levyvix/league-auto-accept/commit/51ec91e728771280876c8b8ddd6d35b8f22a5fb5))
+* implement native automation and Bubble Tea interface ([c0d84bc](https://github.com/levyvix/league-auto-accept/commit/c0d84bc5262812da65dc547cba86b731745cc96e))
+* replace Python application with native Go implementation ([4b5730f](https://github.com/levyvix/league-auto-accept/commit/4b5730f0288e7eee2a9937b0091ee30c74052d9e))
+
+
+### Bug Fixes
+
+* accept incoming swaps through pick order API ([7b1c74d](https://github.com/levyvix/league-auto-accept/commit/7b1c74d460454f139cab4542288789f1d3ab7a75))
+* address ready check and update review findings ([0bf6323](https://github.com/levyvix/league-auto-accept/commit/0bf6323da505b518c947dde8e1823d32d80d4283))
+* deduplicate champion inventory for pick and ban ([fd652e9](https://github.com/levyvix/league-auto-accept/commit/fd652e980dbe3a0a96ac0d1a3bf30b0079072cf2))
+* handle unavailable champions and document native build ([3dc7ed0](https://github.com/levyvix/league-auto-accept/commit/3dc7ed0e2d4fac29220d7173b1116e4cae45b021))
+* persist automatic requeue cancellation ([5a20d8b](https://github.com/levyvix/league-auto-accept/commit/5a20d8b876f6e4d2d8fc57261800c2f70d064878))
+
 ## [0.5.0](https://github.com/levyvix/league-auto-accept/compare/league-auto-accept-v0.4.0...league-auto-accept-v0.5.0) (2026-07-25)
 
 
