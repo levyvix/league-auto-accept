@@ -163,6 +163,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cs := m.filtered()
 				c := cs[min(m.cursor, len(cs)-1)]
 				id := strconv.Itoa(c.ID)
+				if c.ID > 0 {
+					recent := &m.Settings.RecentChampions
+					if m.slot == 4 {
+						recent = &m.Settings.RecentBans
+					}
+					items := []string{id}
+					for _, old := range *recent {
+						if old != id && len(items) < 5 {
+							items = append(items, old)
+						}
+					}
+					*recent = items
+				}
 				switch m.slot {
 				case 0:
 					m.Settings.ChampID = id

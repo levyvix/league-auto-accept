@@ -28,6 +28,10 @@ type Swap struct {
 	Direction string `json:"direction"`
 }
 type Session struct {
+	Bans struct {
+		Mine   []int `json:"myTeamBans"`
+		Theirs []int `json:"theirTeamBans"`
+	} `json:"bans"`
 	Local          int        `json:"localPlayerCellId"`
 	Team           []Player   `json:"myTeam"`
 	Actions        [][]Action `json:"actions"`
@@ -218,6 +222,24 @@ func (e *Engine) Select(ctx context.Context, s config.Settings) error {
 		return nil
 	}
 	candidates := Candidates(s, e.Position, e.Mode, session.Custom)
+	blocked := map[int]bool{}
+	for _, id := range append(session.Bans.Mine, session.Bans.Theirs...) {
+		blocked[id] = true
+	}
+	for _, group := range session.Actions {
+		for _, a := range group {
+			if a.Type == "pick" && a.Completed && a.Actor != session.Local {
+				blocked[a.Champion] = true
+			}
+		}
+	}
+	available := candidates[:0]
+	for _, id := range candidates {
+		if !blocked[id] {
+			available = append(available, id)
+		}
+	}
+	candidates = available
 	if len(candidates) == 0 {
 		e.Notice = "No matching position: automatic pick paused"
 	}
@@ -229,6 +251,16 @@ func (e *Engine) Select(ctx context.Context, s config.Settings) error {
 			path := fmt.Sprintf("lol-champ-select/v1/session/actions/%d", a.ID)
 			if a.Type == "pick" && s.AutoPick && len(candidates) > 0 {
 				selected := e.selected[a.ID]
+				valid := false
+				for _, id := range candidates {
+					if id == selected {
+						valid = true
+					}
+				}
+				if !valid {
+					selected = 0
+					delete(e.selected, a.ID)
+				}
 				if selected == 0 && (time.Since(e.started).Milliseconds() >= int64(s.HoverDelay) || session.Timer.Phase != "PLANNING") {
 					for _, id := range candidates {
 						if err := e.API.Request(ctx, "PATCH", path, map[string]any{"championId": id}, nil); err == nil {

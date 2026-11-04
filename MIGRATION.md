@@ -10,3 +10,13 @@ Implementation milestones:
 4. Tests, Windows executable and build documentation.
 
 The Python implementation remains available during migration for comparison.
+
+Implemented: native process discovery and authenticated LCU requests, shared
+settings, ready checks, primary/secondary pools and backups, autofill pause,
+independent pick/ban controls, configurable action delays from settings, swaps,
+honor skipping, requeue, searchable champion wizard, recent selections, native
+release updates, Windows CI build and automated tests.
+
+Live matchmaking validation requires an active League Client and has not been
+performed as part of the offline test suite. Existing spell fields are preserved;
+the Python application did not automate spell selection either.
