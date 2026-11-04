@@ -78,11 +78,31 @@ func (m Model) poll() tea.Cmd {
 			}
 			if e.API.Request(ctx, "GET", "lol-summoner/v1/current-summoner", nil, &summoner) == nil {
 				_ = e.API.Request(ctx, "GET", fmt.Sprintf("lol-champions/v1/inventories/%d/champions-minimal", summoner.ID), nil, &champs)
-				sort.Slice(champs, func(i, j int) bool { return champs[i].Name < champs[j].Name })
+				champs = uniqueChampions(champs)
 			}
 		}
 		return result{engine: e, settings: s, champions: champs}
 	}
+}
+
+// uniqueChampions collapses repeated inventory entries and alternate IDs for
+// the same display name, preferring the lowest (base champion) ID.
+func uniqueChampions(champions []Champion) []Champion {
+	ordered := append([]Champion(nil), champions...)
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
+	ids, names := map[int]bool{}, map[string]bool{}
+	result := make([]Champion, 0, len(ordered))
+	for _, champion := range ordered {
+		champion.Name = strings.TrimSpace(champion.Name)
+		name := strings.ToLower(champion.Name)
+		if champion.ID <= 0 || name == "" || name == "none" || ids[champion.ID] || names[name] {
+			continue
+		}
+		ids[champion.ID], names[name] = true, true
+		result = append(result, champion)
+	}
+	sort.SliceStable(result, func(i, j int) bool { return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name) })
+	return result
 }
 func (m *Model) save() {
 	if m.Settings.AutoSave {
