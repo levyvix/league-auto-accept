@@ -57,7 +57,8 @@ type Engine struct {
 	selected                      map[int]int
 	lastPhase                     string
 	readyAccepted                 bool
-	requeued, honor               bool
+	nextQueueAttempt              time.Time
+	honor                         bool
 	honorSkippedAt                time.Time
 	playedAgain                   bool
 }
@@ -153,8 +154,8 @@ func (e *Engine) Step(ctx context.Context, s *config.Settings) error {
 		e.started = time.Time{}
 		e.Position = ""
 	}
-	if e.Phase == "Matchmaking" {
-		e.requeued = false
+	if e.Phase != "Lobby" || !s.AutoRequeue {
+		e.nextQueueAttempt = time.Time{}
 	}
 	if e.Phase == "InProgress" || e.Phase == "WaitingForStats" {
 		e.honor = false
@@ -184,11 +185,13 @@ func (e *Engine) Step(ctx context.Context, s *config.Settings) error {
 			s.AutoRequeue = false
 			e.Notice = "Queue cancelled: auto-requeue disabled"
 		}
-		if s.AutoRequeue && !e.requeued {
+		if s.AutoRequeue && !time.Now().Before(e.nextQueueAttempt) {
 			if err := e.API.Request(ctx, "POST", "lol-lobby/v2/lobby/matchmaking/search", nil, nil); err != nil {
-				return err
+				e.Notice = "Could not start matchmaking; retrying"
+				log.Printf("Start matchmaking failed: %v", err)
 			}
-			e.requeued = true
+			// A successful response does not confirm that the client left Lobby.
+			e.nextQueueAttempt = time.Now().Add(5 * time.Second)
 		}
 	}
 	e.lastPhase = e.Phase

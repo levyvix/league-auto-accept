@@ -68,7 +68,7 @@ func TestHonorThenPlayAgainBeforeEndOfGame(t *testing.T) {
 	if err := e.Step(context.Background(), &s); err != nil {
 		t.Fatal(err)
 	}
-	if !e.requeued {
+	if e.nextQueueAttempt.IsZero() {
 		t.Fatal("must start search after reaching lobby")
 	}
 }
@@ -99,6 +99,46 @@ func TestDisabledRequeueDoesNotSkipHonor(t *testing.T) {
 	_ = New(f).Step(context.Background(), new(config.Settings))
 	if len(f.calls) != 1 {
 		t.Fatal(f.calls)
+	}
+}
+
+func TestRequeueRetriesIfClientStaysInLobby(t *testing.T) {
+	const search = "lol-lobby/v2/lobby/matchmaking/search"
+	f := &fakeAPI{phase: "Lobby"}
+	e := New(f)
+	s := config.Defaults()
+	s.AutoRequeue = true
+	step := func() {
+		t.Helper()
+		if err := e.Step(context.Background(), &s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func() int {
+		n := 0
+		for _, call := range f.calls {
+			if call == "POST "+search {
+				n++
+			}
+		}
+		return n
+	}
+	step()
+	step()
+	if count() != 1 {
+		t.Fatalf("expected cooldown, calls: %v", f.calls)
+	}
+	e.nextQueueAttempt = time.Now().Add(-time.Second)
+	step()
+	if count() != 2 {
+		t.Fatalf("expected retry after successful POST left client in Lobby: %v", f.calls)
+	}
+	f.phase = "Matchmaking"
+	step()
+	f.phase = "Lobby"
+	step()
+	if s.AutoRequeue || count() != 2 {
+		t.Fatal("returning from matchmaking must not restart a cancelled search")
 	}
 }
 
