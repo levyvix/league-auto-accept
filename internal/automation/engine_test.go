@@ -7,6 +7,7 @@ import (
 	"github.com/levyvix/league-auto-accept/internal/config"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeAPI struct {
@@ -16,10 +17,29 @@ type fakeAPI struct {
 	payloads []map[string]any
 	reject   int
 	swaps    []Swap
+	failPath string
+}
+
+type fakeClock struct {
+	current time.Time
+}
+
+func (clock *fakeClock) Now() time.Time { return clock.current }
+
+func (clock *fakeClock) Advance(duration time.Duration) {
+	clock.current = clock.current.Add(duration)
+}
+
+func newTestEngine(api *fakeAPI) (*Engine, *fakeClock) {
+	clock := &fakeClock{current: time.Unix(1, 0)}
+	return newEngine(api, clock.Now), clock
 }
 
 func (f *fakeAPI) Request(_ context.Context, m, p string, b, out any) error {
 	f.calls = append(f.calls, m+" "+p)
+	if p == f.failPath {
+		return fmt.Errorf("client not ready")
+	}
 	if p == "lol-gameflow/v1/session" && out != nil {
 		data, _ := json.Marshal(map[string]string{"phase": f.phase})
 		return json.Unmarshal(data, out)
@@ -39,6 +59,115 @@ func (f *fakeAPI) Request(_ context.Context, m, p string, b, out any) error {
 		return json.Unmarshal(data, out)
 	}
 	return nil
+}
+
+func countRequest(calls []string, want string) int {
+	count := 0
+	for _, call := range calls {
+		if call == want {
+			count++
+		}
+	}
+	return count
+}
+
+func TestHonorThenPlayAgainBeforeEndOfGame(t *testing.T) {
+	f := &fakeAPI{phase: "PreEndOfGame"}
+	e, clock := newTestEngine(f)
+	s := config.Defaults()
+	s.AutoRequeue = true
+	if err := e.Step(context.Background(), &s); err != nil {
+		t.Fatal(err)
+	}
+	if countRequest(f.calls, "POST lol-honor-v2/v1/skip-honor-vote") != 1 || countRequest(f.calls, "POST lol-lobby/v2/play-again") != 0 {
+		t.Fatalf("honor should precede Play Again: %v", f.calls)
+	}
+	clock.Advance(2 * time.Second)
+	if err := e.Step(context.Background(), &s); err != nil {
+		t.Fatal(err)
+	}
+	if countRequest(f.calls, "POST lol-lobby/v2/play-again") != 1 {
+		t.Fatalf("must play again while still PreEndOfGame: %v", f.calls)
+	}
+	f.phase = "Lobby"
+	if err := e.Step(context.Background(), &s); err != nil {
+		t.Fatal(err)
+	}
+	if countRequest(f.calls, "POST lol-lobby/v2/lobby/matchmaking/search") != 1 {
+		t.Fatalf("must start search after reaching lobby: %v", f.calls)
+	}
+}
+
+func TestHonorRetryInEndOfGame(t *testing.T) {
+	f := &fakeAPI{phase: "EndOfGame", failPath: "lol-honor-v2/v1/skip-honor-vote"}
+	e, clock := newTestEngine(f)
+	s := config.Defaults()
+	s.AutoRequeue = true
+	_ = e.Step(context.Background(), &s)
+	if e.Notice != "Could not skip honor; retrying" {
+		t.Fatalf("failed skip must be visible and retried: notice=%q calls=%v", e.Notice, f.calls)
+	}
+	f.failPath = ""
+	_ = e.Step(context.Background(), &s)
+	if countRequest(f.calls, "POST lol-honor-v2/v1/skip-honor-vote") != 2 {
+		t.Fatalf("skip must retry in EndOfGame: %v", f.calls)
+	}
+	clock.Advance(2 * time.Second)
+	f.phase = "WaitingForStats"
+	_ = e.Step(context.Background(), &s)
+	f.phase = "PreEndOfGame"
+	_ = e.Step(context.Background(), &s)
+	if countRequest(f.calls, "POST lol-honor-v2/v1/skip-honor-vote") != 3 {
+		t.Fatalf("post-game actions must reset for the next game: %v", f.calls)
+	}
+}
+
+func TestDisabledRequeueDoesNotSkipHonor(t *testing.T) {
+	f := &fakeAPI{phase: "PreEndOfGame"}
+	_ = New(f).Step(context.Background(), new(config.Settings))
+	if len(f.calls) != 1 {
+		t.Fatal(f.calls)
+	}
+}
+
+func TestRequeueRetriesIfClientStaysInLobby(t *testing.T) {
+	const search = "lol-lobby/v2/lobby/matchmaking/search"
+	f := &fakeAPI{phase: "Lobby"}
+	e, clock := newTestEngine(f)
+	s := config.Defaults()
+	s.AutoRequeue = true
+	step := func() {
+		t.Helper()
+		if err := e.Step(context.Background(), &s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func() int {
+		n := 0
+		for _, call := range f.calls {
+			if call == "POST "+search {
+				n++
+			}
+		}
+		return n
+	}
+	step()
+	step()
+	if count() != 1 {
+		t.Fatalf("expected cooldown, calls: %v", f.calls)
+	}
+	clock.Advance(5 * time.Second)
+	step()
+	if count() != 2 {
+		t.Fatalf("expected retry after successful POST left client in Lobby: %v", f.calls)
+	}
+	f.phase = "Matchmaking"
+	step()
+	f.phase = "Lobby"
+	step()
+	if s.AutoRequeue || count() != 2 {
+		t.Fatal("returning from matchmaking must not restart a cancelled search")
+	}
 }
 
 func TestEnableAcceptDuringReadyCheck(t *testing.T) {

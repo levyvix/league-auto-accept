@@ -57,10 +57,18 @@ type Engine struct {
 	selected                      map[int]int
 	lastPhase                     string
 	readyAccepted                 bool
-	requeued, honor               bool
+	nextQueueAttempt              time.Time
+	postGame                      postGameWorkflow
+	now                           func() time.Time
 }
 
-func New(api lcu.API) *Engine { return &Engine{API: api, selected: map[int]int{}} }
+func New(api lcu.API) *Engine {
+	return newEngine(api, time.Now)
+}
+
+func newEngine(api lcu.API, now func() time.Time) *Engine {
+	return &Engine{API: api, selected: map[int]int{}, now: now}
+}
 func Normalize(s string) string {
 	s = strings.ToUpper(strings.TrimSpace(s))
 	switch s {
@@ -151,11 +159,11 @@ func (e *Engine) Step(ctx context.Context, s *config.Settings) error {
 		e.started = time.Time{}
 		e.Position = ""
 	}
-	if e.Phase == "Matchmaking" {
-		e.requeued = false
+	if e.Phase != "Lobby" || !s.AutoRequeue {
+		e.nextQueueAttempt = time.Time{}
 	}
-	if e.Phase == "InProgress" {
-		e.honor = false
+	if e.Phase == "InProgress" || e.Phase == "WaitingForStats" {
+		e.postGame.reset()
 	}
 	switch e.Phase {
 	case "ReadyCheck":
@@ -171,40 +179,35 @@ func (e *Engine) Step(ctx context.Context, s *config.Settings) error {
 				return err
 			}
 		}
-	case "PreEndOfGame":
-		if s.AutoRequeue && !e.honor {
-			if err := e.API.Request(ctx, "POST", "lol-honor-v2/v1/skip-honor-vote", nil, nil); err == nil {
-				e.honor = true
-			}
-		}
-	case "EndOfGame":
-		if s.AutoRequeue && !e.requeued {
-			if err := e.API.Request(ctx, "POST", "lol-lobby/v2/play-again", nil, nil); err != nil {
-				return err
-			}
+	case "PreEndOfGame", "EndOfGame":
+		if s.AutoRequeue {
+			e.Notice = e.postGame.step(ctx, e.API, e.Phase, e.now())
 		}
 	case "Lobby":
 		if e.lastPhase == "Matchmaking" || e.lastPhase == "ReadyCheck" {
 			s.AutoRequeue = false
 			e.Notice = "Queue cancelled: auto-requeue disabled"
 		}
-		if s.AutoRequeue && !e.requeued {
+		if s.AutoRequeue && !e.now().Before(e.nextQueueAttempt) {
 			if err := e.API.Request(ctx, "POST", "lol-lobby/v2/lobby/matchmaking/search", nil, nil); err != nil {
-				return err
+				e.Notice = "Could not start matchmaking; retrying"
+				log.Printf("Start matchmaking failed: %v", err)
 			}
-			e.requeued = true
+			// A successful response does not confirm that the client left Lobby.
+			e.nextQueueAttempt = e.now().Add(5 * time.Second)
 		}
 	}
 	e.lastPhase = e.Phase
 	return nil
 }
+
 func (e *Engine) Select(ctx context.Context, s config.Settings) error {
 	var session Session
 	if err := e.API.Request(ctx, "GET", "lol-champ-select/v1/session", nil, &session); err != nil {
 		return err
 	}
 	if e.started.IsZero() || session.Chat.ID != e.room {
-		e.started = time.Now()
+		e.started = e.now()
 		e.room = session.Chat.ID
 		e.selected = map[int]int{}
 		e.Position = ""
@@ -276,7 +279,7 @@ func (e *Engine) Select(ctx context.Context, s config.Settings) error {
 					selected = 0
 					delete(e.selected, a.ID)
 				}
-				if selected == 0 && (time.Since(e.started).Milliseconds() >= int64(s.HoverDelay) || session.Timer.Phase != "PLANNING") {
+				if selected == 0 && (e.now().Sub(e.started).Milliseconds() >= int64(s.HoverDelay) || session.Timer.Phase != "PLANNING") {
 					for _, id := range candidates {
 						if err := e.API.Request(ctx, "PATCH", path, map[string]any{"championId": id}, nil); err == nil {
 							selected = id
