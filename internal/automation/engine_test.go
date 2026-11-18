@@ -20,6 +20,21 @@ type fakeAPI struct {
 	failPath string
 }
 
+type fakeClock struct {
+	current time.Time
+}
+
+func (clock *fakeClock) Now() time.Time { return clock.current }
+
+func (clock *fakeClock) Advance(duration time.Duration) {
+	clock.current = clock.current.Add(duration)
+}
+
+func newTestEngine(api *fakeAPI) (*Engine, *fakeClock) {
+	clock := &fakeClock{current: time.Unix(1, 0)}
+	return newEngine(api, clock.Now), clock
+}
+
 func (f *fakeAPI) Request(_ context.Context, m, p string, b, out any) error {
 	f.calls = append(f.calls, m+" "+p)
 	if p == f.failPath {
@@ -46,51 +61,64 @@ func (f *fakeAPI) Request(_ context.Context, m, p string, b, out any) error {
 	return nil
 }
 
+func countRequest(calls []string, want string) int {
+	count := 0
+	for _, call := range calls {
+		if call == want {
+			count++
+		}
+	}
+	return count
+}
+
 func TestHonorThenPlayAgainBeforeEndOfGame(t *testing.T) {
 	f := &fakeAPI{phase: "PreEndOfGame"}
-	e := New(f)
+	e, clock := newTestEngine(f)
 	s := config.Defaults()
 	s.AutoRequeue = true
 	if err := e.Step(context.Background(), &s); err != nil {
 		t.Fatal(err)
 	}
-	if !e.honor || e.playedAgain {
-		t.Fatal("honor should precede lobby transition")
+	if countRequest(f.calls, "POST lol-honor-v2/v1/skip-honor-vote") != 1 || countRequest(f.calls, "POST lol-lobby/v2/play-again") != 0 {
+		t.Fatalf("honor should precede Play Again: %v", f.calls)
 	}
-	e.honorSkippedAt = time.Now().Add(-3 * time.Second)
+	clock.Advance(2 * time.Second)
 	if err := e.Step(context.Background(), &s); err != nil {
 		t.Fatal(err)
 	}
-	if !e.playedAgain {
-		t.Fatal("must play again while still PreEndOfGame")
+	if countRequest(f.calls, "POST lol-lobby/v2/play-again") != 1 {
+		t.Fatalf("must play again while still PreEndOfGame: %v", f.calls)
 	}
 	f.phase = "Lobby"
 	if err := e.Step(context.Background(), &s); err != nil {
 		t.Fatal(err)
 	}
-	if e.nextQueueAttempt.IsZero() {
-		t.Fatal("must start search after reaching lobby")
+	if countRequest(f.calls, "POST lol-lobby/v2/lobby/matchmaking/search") != 1 {
+		t.Fatalf("must start search after reaching lobby: %v", f.calls)
 	}
 }
 
 func TestHonorRetryInEndOfGame(t *testing.T) {
 	f := &fakeAPI{phase: "EndOfGame", failPath: "lol-honor-v2/v1/skip-honor-vote"}
-	e := New(f)
+	e, clock := newTestEngine(f)
 	s := config.Defaults()
 	s.AutoRequeue = true
 	_ = e.Step(context.Background(), &s)
-	if e.honor {
-		t.Fatal("failed skip must retry")
+	if e.Notice != "Could not skip honor; retrying" {
+		t.Fatalf("failed skip must be visible and retried: notice=%q calls=%v", e.Notice, f.calls)
 	}
 	f.failPath = ""
 	_ = e.Step(context.Background(), &s)
-	if !e.honor {
-		t.Fatal("skip must retry in EndOfGame")
+	if countRequest(f.calls, "POST lol-honor-v2/v1/skip-honor-vote") != 2 {
+		t.Fatalf("skip must retry in EndOfGame: %v", f.calls)
 	}
+	clock.Advance(2 * time.Second)
 	f.phase = "WaitingForStats"
 	_ = e.Step(context.Background(), &s)
-	if e.honor || e.playedAgain {
-		t.Fatal("post-game state must reset for next game")
+	f.phase = "PreEndOfGame"
+	_ = e.Step(context.Background(), &s)
+	if countRequest(f.calls, "POST lol-honor-v2/v1/skip-honor-vote") != 3 {
+		t.Fatalf("post-game actions must reset for the next game: %v", f.calls)
 	}
 }
 
@@ -105,7 +133,7 @@ func TestDisabledRequeueDoesNotSkipHonor(t *testing.T) {
 func TestRequeueRetriesIfClientStaysInLobby(t *testing.T) {
 	const search = "lol-lobby/v2/lobby/matchmaking/search"
 	f := &fakeAPI{phase: "Lobby"}
-	e := New(f)
+	e, clock := newTestEngine(f)
 	s := config.Defaults()
 	s.AutoRequeue = true
 	step := func() {
@@ -128,7 +156,7 @@ func TestRequeueRetriesIfClientStaysInLobby(t *testing.T) {
 	if count() != 1 {
 		t.Fatalf("expected cooldown, calls: %v", f.calls)
 	}
-	e.nextQueueAttempt = time.Now().Add(-time.Second)
+	clock.Advance(5 * time.Second)
 	step()
 	if count() != 2 {
 		t.Fatalf("expected retry after successful POST left client in Lobby: %v", f.calls)
